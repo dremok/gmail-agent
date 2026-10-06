@@ -1,0 +1,20 @@
+# OAuth secrets and tokens: never commit these
+credentials.json
+client_secret*.json
+token.json
+*.token.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/

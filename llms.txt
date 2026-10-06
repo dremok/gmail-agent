@@ -1,0 +1,22 @@
+# gmail-agent
+
+> Read-only Gmail access for AI agents, as a CLI (`gmail-agent ... --json`) and an MCP server over stdio (`gmail-agent mcp`). Search with Gmail query syntax, read messages and threads as plain text, list and download attachments (never overwrites, sanitized names), and extract text from PDF attachments. Drafts are an explicit opt-in; nothing sends mail. Uses the user's own Google Cloud OAuth client; tokens stay in ~/.config/gmail-agent/.
+
+Install: `uv tool install git+https://github.com/dremok/gmail-agent`
+Check setup: `gmail-agent status --json` (exit 0 = ready). Setup needs the human: a Google Cloud Desktop OAuth client saved to `~/.config/gmail-agent/credentials.json`, then `gmail-agent login` in a browser.
+
+CLI commands: `search`, `message`, `thread`, `labels`, `attachments`, `download`, `fetch`, `read`, `draft` (opt-in), `login`, `logout`, `status`, `mcp`.
+MCP tools: `account_status`, `search_messages`, `get_message`, `get_thread`, `list_labels`, `list_attachments`, `download_attachments`, `download_matching_attachments`, `read_attachment_text`, `create_draft` (only with `--allow-drafts`).
+Errors with `--json`: `{"error": "...", "code": "setup" | "not_found" | "error"}`; exit code 2 means a setup step is missing and the message names it.
+
+## Docs
+
+- [README](https://github.com/dremok/gmail-agent/blob/main/README.md): what it does, Google Cloud OAuth setup, CLI and MCP usage, security notes
+- [For AI agents](https://github.com/dremok/gmail-agent/blob/main/README.md#for-ai-agents): copy-paste install, setup checks and commands
+- [AGENTS.md](https://github.com/dremok/gmail-agent/blob/main/AGENTS.md): command table, rules for agents, repo layout and constraints
+
+## Optional
+
+- [Gmail search operators](https://support.google.com/mail/answer/7190)
+- [Source: Gmail operations](https://github.com/dremok/gmail-agent/blob/main/src/gmail_agent/gmail.py)
+- [Source: MCP server](https://github.com/dremok/gmail-agent/blob/main/src/gmail_agent/server.py)
