@@ -87,6 +87,16 @@ def logout() -> bool:
     return True
 
 
+def saved_scopes() -> list[str] | None:
+    """The scopes recorded in the saved token, without touching the network. None if there is
+    no readable token."""
+    try:
+        scopes = json.loads(config.token_path().read_text()).get("scopes")
+    except (OSError, ValueError):
+        return None
+    return scopes.split() if isinstance(scopes, str) else scopes
+
+
 def load_credentials() -> Credentials:
     """Load the saved token, refreshing it if needed. Never opens a browser."""
     path = config.token_path()

@@ -1,3 +1,4 @@
+import json
 import sys
 
 import pytest
@@ -72,11 +73,58 @@ async def test_read_only_server(gmail):
     assert set(await tool_map(server_with(gmail, read_only=True))) == READ_TOOLS
 
 
+COMPOSE_TOOLS = {
+    "send_message",
+    "reply_to_message",
+    "forward_message",
+    "create_draft",
+    "update_draft",
+    "send_draft",
+    "delete_draft",
+}
+
+
 @pytest.mark.anyio
-async def test_allow_delete_adds_permanent_delete(gmail):
-    tools = await tool_map(server_with(gmail, allow_delete=True))
-    assert set(tools) == READ_TOOLS | WRITE_TOOLS | {"delete_permanently"}
+@pytest.mark.parametrize(
+    ("level", "allow_delete", "expected"),
+    [
+        ("readonly", True, READ_TOOLS),
+        ("compose", True, READ_TOOLS | COMPOSE_TOOLS),
+        ("modify", True, READ_TOOLS | WRITE_TOOLS),
+        ("full", False, READ_TOOLS | WRITE_TOOLS),
+        ("full", True, READ_TOOLS | WRITE_TOOLS | {"delete_permanently"}),
+    ],
+)
+async def test_tools_follow_the_granted_scopes(gmail, level, allow_delete, expected):
+    server = server_with(gmail, scopes=config.LEVELS[level], allow_delete=allow_delete)
+    assert set(await tool_map(server)) == expected
+
+
+@pytest.mark.anyio
+async def test_permanent_delete_is_destructive(gmail):
+    server = server_with(gmail, scopes=config.LEVELS["full"], allow_delete=True)
+    tools = await tool_map(server)
     assert tools["delete_permanently"].annotations.destructive_hint is True
+
+
+@pytest.mark.anyio
+async def test_read_only_flag_beats_a_full_login(gmail):
+    server = server_with(gmail, scopes=config.LEVELS["full"], allow_delete=True, read_only=True)
+    assert set(await tool_map(server)) == READ_TOOLS
+
+
+@pytest.mark.anyio
+async def test_stdio_server_reads_scopes_from_saved_token(isolated_config):
+    isolated_config.mkdir()
+    config.token_path().write_text(json.dumps({"scopes": config.LEVELS["compose"]}))
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "gmail_agent", "mcp"],
+        env={"GMAIL_AGENT_CONFIG_DIR": str(isolated_config)},
+    )
+    async with Client(params) as client:
+        names = {t.name for t in (await client.list_tools()).tools}
+    assert names == READ_TOOLS | COMPOSE_TOOLS
 
 
 @pytest.mark.anyio
@@ -131,8 +179,9 @@ async def test_mark_and_trash(gmail, mailbox):
 
 @pytest.mark.anyio
 async def test_scope_errors_are_readable(service):
+    # A server built before a re-login can still hold tools the new token lacks.
     readonly = Gmail(service, config.LEVELS["readonly"])
-    async with Client(server_with(readonly)) as client:
+    async with Client(server_with(readonly, scopes=config.LEVELS["modify"])) as client:
         res = await client.call_tool(
             "send_message", {"to": ["bob@example.com"], "subject": "x", "body": "y"}
         )

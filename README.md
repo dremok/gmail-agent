@@ -97,7 +97,7 @@ Only use `full` if you want permanent delete. Trash (available with `modify`) is
 
 ## CLI usage
 
-Every command takes `--json` for machine-readable output. Run `gmail-agent <command> --help` for all options.
+Every command takes `--json` for machine-readable output, before or after the command (`gmail-agent --json search ...` and `gmail-agent search ... --json` both work). Run `gmail-agent <command> --help` for all options.
 
 **Read and download**
 
@@ -205,7 +205,9 @@ claude mcp add gmail --scope user -- gmail-agent mcp --read-only      # reading 
 
 Without installing first, `uvx` works too: `"command": "uvx", "args": ["--from", "git+https://github.com/dremok/gmail-agent", "gmail-agent", "mcp"]`.
 
-**Server flags:** `--read-only` exposes only the reading tools, whatever the login allows. `--allow-delete` adds `delete_permanently`, which also needs a `full` login. Without it, the server has no way to delete mail permanently.
+**Which tools show up** follows the access level in your saved login: `readonly` gets only the reading tools, `compose` adds sending and drafts, `modify` adds labels, state and trash. Before you have logged in, the server offers the `modify` set, and each tool explains how to log in. After changing the level with `gmail-agent login --scope ...`, restart the MCP client so it picks up the new tool list.
+
+**Server flags:** `--read-only` keeps only the reading tools, whatever the login allows. `--allow-delete` adds `delete_permanently`, and only if the login has `full` access. Without both, the server has no way to delete mail permanently.
 
 **Tools:**
 
@@ -225,7 +227,7 @@ Without installing first, `uvx` works too: `"command": "uvx", "args": ["--from",
 | `create_label`, `rename_label`, `delete_label` | Label management |
 | `modify_labels`, `mark_messages` | Add/remove labels; read, unread, star, unstar, archive, unarchive |
 | `trash`, `untrash` | Move to and from Trash |
-| `delete_permanently` | Only with `--allow-delete` |
+| `delete_permanently` | Only with `--allow-delete` and a `full` login |
 
 Every write tool takes `dry_run`. Reading tools are marked `readOnlyHint`. `trash` and the delete tools are marked `destructiveHint`, so clients that ask before destructive calls will ask.
 

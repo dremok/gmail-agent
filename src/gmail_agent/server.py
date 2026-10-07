@@ -15,7 +15,8 @@ from .errors import GmailAgentError
 from .gmail import DEFAULT_BODY_CHARS, DEFAULT_TEXT_CHARS, Gmail
 
 INSTRUCTIONS = """\
-Access to the user's Gmail. Queries use Gmail search syntax (from:, to:, subject:,
+Access to the user's Gmail. Which write tools exist depends on the access level the user
+granted at login (see account_status). Queries use Gmail search syntax (from:, to:, subject:,
 has:attachment, filename:pdf, after:2026/01/31, newer_than:7d, label:, in:anywhere).
 Reading: search_messages -> get_message / get_thread / list_attachments -> download_attachments.
 Attachments are picked by filename or part_id (e.g. "1.2"); attachment_id values can change
@@ -41,13 +42,25 @@ def build_server(
     read_only: bool = False,
     allow_delete: bool = False,
     connect: Callable[[], Gmail] | None = None,
+    scopes: list[str] | None = None,
 ) -> MCPServer:
     """Build the server. `connect()` returns a Gmail client and defaults to the saved login.
 
+    Only the tools that `scopes` (the login's granted scopes) allow are exposed; None, meaning
+    not logged in yet, exposes the default level's tools so their errors explain the setup.
     The connection is made on the first tool call, so the server starts even before login.
-    `read_only` exposes only reading and downloading. `allow_delete` adds the permanent
-    delete tool, which also needs a login with the full scope.
+    `read_only` keeps only reading and downloading. `allow_delete` adds the permanent delete
+    tool, which is exposed only if the scopes include full access.
     """
+    granted = scopes if scopes is not None else config.LEVELS[config.DEFAULT_LEVEL]
+
+    def exposed(access: str) -> bool:
+        if access == "read":
+            return True
+        if read_only or (access == "delete" and not allow_delete):
+            return False
+        return config.allows(granted, access)
+
     connect = connect or Gmail.connect
     client: list[Gmail] = []
 
@@ -58,12 +71,12 @@ def build_server(
 
     mcp = MCPServer("gmail-agent", instructions=INSTRUCTIONS)
 
-    def tool(annotations: ToolAnnotations, enabled: bool = True):
-        """Register a tool whose GmailAgentErrors reach the model as readable tool errors
-        (the SDK hides the text of any other exception)."""
+    def tool(annotations: ToolAnnotations, access: str = "read"):
+        """Register a tool, if the login's access allows it, whose GmailAgentErrors reach the
+        model as readable tool errors (the SDK hides the text of any other exception)."""
 
         def register(fn):
-            if not enabled:
+            if not exposed(access):
                 return fn
 
             @functools.wraps(fn)
@@ -76,8 +89,6 @@ def build_server(
             return mcp.tool(annotations=annotations)(wrapper)
 
         return register
-
-    writes = not read_only
 
     # Reading ------------------------------------------------------------------------------
 
@@ -173,7 +184,7 @@ def build_server(
 
     # Sending and drafts -------------------------------------------------------------------
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "compose")
     def send_message(
         to: list[str],
         subject: str,
@@ -190,7 +201,7 @@ def build_server(
         Drafts instead. Returns the sent message id and thread_id (or draft_id)."""
         return gmail().send(to, subject, body, html, cc, bcc, attachment_paths, as_draft, dry_run)
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "compose")
     def reply_to_message(
         message_id: str,
         body: str | None = None,
@@ -210,7 +221,7 @@ def build_server(
             message_id, body, html, reply_all, cc, bcc, attachment_paths, quote, as_draft, dry_run
         )
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "compose")
     def forward_message(
         message_id: str,
         to: list[str],
@@ -238,7 +249,7 @@ def build_server(
             dry_run,
         )
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "compose")
     def create_draft(
         to: list[str] | None = None,
         subject: str = "",
@@ -253,7 +264,7 @@ def build_server(
         reply_to_message or forward_message with as_draft=true."""
         return gmail().send(to, subject, body, html, cc, bcc, attachment_paths, True, dry_run)
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "compose")
     def update_draft(
         draft_id: str,
         to: list[str] | None = None,
@@ -282,34 +293,34 @@ def build_server(
             dry_run,
         )
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "compose")
     def send_draft(draft_id: str, dry_run: bool = False) -> dict[str, Any]:
         """Send an existing draft. Returns the sent message id and thread_id."""
         return gmail().send_draft(draft_id, dry_run)
 
-    @tool(DESTRUCTIVE, writes)
+    @tool(DESTRUCTIVE, "compose")
     def delete_draft(draft_id: str, dry_run: bool = False) -> dict[str, Any]:
         """Delete a draft permanently (drafts do not go to Trash)."""
         return gmail().delete_draft(draft_id, dry_run)
 
     # Labels and state ---------------------------------------------------------------------
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "modify")
     def create_label(name: str, dry_run: bool = False) -> dict[str, Any]:
         """Create a label. Use "/" for nesting, e.g. "Receipts/2026"."""
         return gmail().create_label(name, dry_run)
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "modify")
     def rename_label(label: str, new_name: str, dry_run: bool = False) -> dict[str, Any]:
         """Rename a user label, given by name or id."""
         return gmail().rename_label(label, new_name, dry_run)
 
-    @tool(DESTRUCTIVE, writes)
+    @tool(DESTRUCTIVE, "modify")
     def delete_label(label: str, dry_run: bool = False) -> dict[str, Any]:
         """Delete a user label. The messages stay; they just lose this label."""
         return gmail().delete_label(label, dry_run)
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "modify")
     def modify_labels(
         ids: list[str],
         add_labels: list[str] | None = None,
@@ -321,7 +332,7 @@ def build_server(
         threads=true. System labels work too: INBOX, UNREAD, STARRED, IMPORTANT, SPAM."""
         return gmail().modify_labels(ids, add_labels, remove_labels, threads, dry_run)
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "modify")
     def mark_messages(
         ids: list[str],
         action: Literal["read", "unread", "star", "unstar", "archive", "unarchive"],
@@ -331,18 +342,18 @@ def build_server(
         """Mark read/unread, star/unstar, archive (remove from Inbox) or unarchive."""
         return gmail().mark(ids, action, threads, dry_run)
 
-    @tool(DESTRUCTIVE, writes)
+    @tool(DESTRUCTIVE, "modify")
     def trash(ids: list[str], threads: bool = False, dry_run: bool = False) -> dict[str, Any]:
         """Move messages (or threads) to Trash. Gmail deletes Trash after 30 days; untrash
         restores them before that."""
         return gmail().trash(ids, threads, False, dry_run)
 
-    @tool(WRITE, writes)
+    @tool(WRITE, "modify")
     def untrash(ids: list[str], threads: bool = False, dry_run: bool = False) -> dict[str, Any]:
         """Restore messages (or threads) from Trash."""
         return gmail().trash(ids, threads, True, dry_run)
 
-    @tool(DESTRUCTIVE, writes and allow_delete)
+    @tool(DESTRUCTIVE, "delete")
     def delete_permanently(
         ids: list[str], threads: bool = False, dry_run: bool = False
     ) -> dict[str, Any]:

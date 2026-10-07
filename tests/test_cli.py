@@ -1,5 +1,6 @@
 import io
 import json
+import shlex
 import subprocess
 import sys
 
@@ -73,6 +74,27 @@ def test_not_logged_in_is_a_clear_setup_error(capsys):
     assert code == 2
     assert out == ""
     assert "error: No OAuth client file" in err
+
+
+@pytest.mark.parametrize("argv", [["--json", "message", "m1"], ["message", "m1", "--json"]])
+def test_json_before_or_after_the_command(connected, capsys, argv):
+    code, out, _ = run(capsys, *argv)
+    assert code == 0
+    assert json.loads(out)["id"] == "m1"
+
+
+def test_json_before_a_nested_command(connected, capsys):
+    code, out, _ = run(capsys, "--json", "draft", "list")
+    assert code == 0
+    assert json.loads(out) == {"drafts": [], "next_page_token": None}
+
+
+def test_epilog_examples_parse():
+    parser = cli.build_parser()
+    for line in cli.EPILOG.splitlines():
+        line = line.strip()
+        if line.startswith("gmail-agent "):
+            parser.parse_args(shlex.split(line)[1:])
 
 
 def test_not_logged_in_json(capsys):

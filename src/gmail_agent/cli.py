@@ -458,7 +458,10 @@ def cmd_delete(args) -> Any:
 def cmd_mcp(args) -> Any:
     from .server import build_server
 
-    build_server(read_only=args.read_only, allow_delete=args.allow_delete).run()
+    server = build_server(
+        read_only=args.read_only, allow_delete=args.allow_delete, scopes=auth.saved_scopes()
+    )
+    server.run()
     return None
 
 
@@ -466,8 +469,10 @@ def cmd_mcp(args) -> Any:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    json_help = "print JSON (for scripts and agents)"
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--json", action="store_true", help="print JSON (for scripts and agents)")
+    # SUPPRESS keeps a subcommand's unset --json from overwriting one given before it.
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=json_help)
     dry = argparse.ArgumentParser(add_help=False)
     dry.add_argument(
         "--dry-run", action="store_true", help="show the exact request (and MIME), change nothing"
@@ -481,6 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--version", action="version", version=f"gmail-agent {__version__}")
+    p.add_argument("--json", action="store_true", help=f"{json_help}; also accepted after COMMAND")
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     def add(parent, name: str, func, help: str, write: bool = False, **kw):
