@@ -101,7 +101,7 @@ class Gmail:
         have = ", ".join(config.short_scope(s) for s in self.scopes) or "no scopes"
         level = config.ACCESS[access][1]
         raise ScopeError(
-            f"{what} needs {ACCESS_LABELS[access]}, but this login only granted {have}. "
+            f"{what[:1].upper()}{what[1:]} needs {ACCESS_LABELS[access]}, but this login only granted {have}. "
             f"Run: gmail-agent login --scope {level}"
         )
 
