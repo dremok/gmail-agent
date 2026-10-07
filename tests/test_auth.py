@@ -1,12 +1,13 @@
 import json
 import stat
+from typing import ClassVar
 
 import pytest
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 
 from gmail_agent import auth, config
-from gmail_agent.errors import SetupError
+from gmail_agent.errors import GmailAgentError, SetupError
 
 
 def write_token(scopes, expired=False):
@@ -66,12 +67,80 @@ def test_valid_token_loads():
     assert creds.token == "access"
 
 
-def test_drafts_need_compose_scope():
-    write_token([config.READONLY_SCOPE])
-    with pytest.raises(SetupError, match="login --allow-drafts"):
-        auth.load_credentials(require_drafts=True)
-    write_token(config.scopes(allow_drafts=True))
-    assert auth.load_credentials(require_drafts=True)
+@pytest.mark.parametrize(
+    ("level", "allowed"),
+    [
+        ("readonly", {"read"}),
+        ("compose", {"read", "compose"}),
+        ("modify", {"read", "compose", "modify"}),
+        ("full", {"read", "compose", "modify", "delete"}),
+    ],
+)
+def test_levels_grant_what_they_say(level, allowed):
+    scopes = config.LEVELS[level]
+    assert config.level_of(scopes) == level
+    assert {a for a in config.ACCESS if config.allows(scopes, a)} == allowed
+
+
+def test_default_level_is_modify():
+    assert config.DEFAULT_LEVEL == "modify"
+
+
+class FakeFlow:
+    """Stands in for InstalledAppFlow; records the requested scopes."""
+
+    requested: ClassVar[list[str]] = []
+    grant: ClassVar[list[str] | None] = None
+
+    @classmethod
+    def from_client_secrets_file(cls, path, scopes):
+        cls.requested = scopes
+        return cls()
+
+    def run_local_server(self, **kwargs):
+        granted = self.grant if self.grant is not None else self.requested
+        return Credentials(
+            token="t",
+            refresh_token="r",
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id="id",
+            client_secret="s",
+            scopes=self.requested,
+            granted_scopes=granted,
+        )
+
+
+@pytest.fixture
+def fake_flow(monkeypatch, isolated_config):
+    import google_auth_oauthlib.flow
+
+    isolated_config.mkdir()
+    config.credentials_path().write_text("{}")
+    FakeFlow.grant = None
+    monkeypatch.setattr(google_auth_oauthlib.flow, "InstalledAppFlow", FakeFlow)
+    return FakeFlow
+
+
+def test_login_requests_level_and_saves_granted_scopes(fake_flow):
+    auth.login("full")
+    assert fake_flow.requested == [config.FULL_SCOPE]
+    assert json.loads(config.token_path().read_text())["scopes"] == [config.FULL_SCOPE]
+
+
+def test_login_defaults_to_modify(fake_flow):
+    auth.login()
+    assert fake_flow.requested == [config.MODIFY_SCOPE]
+
+
+def test_login_records_partial_consent(fake_flow):
+    fake_flow.grant = [config.READONLY_SCOPE]  # user unticked the compose box
+    auth.login("compose")
+    assert json.loads(config.token_path().read_text())["scopes"] == [config.READONLY_SCOPE]
+
+
+def test_login_unknown_level(fake_flow):
+    with pytest.raises(GmailAgentError, match="Unknown scope level"):
+        auth.login("everything")
 
 
 def test_expired_token_that_google_rejects(monkeypatch):

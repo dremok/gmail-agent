@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+from email.message import EmailMessage
 from email.parser import BytesParser
 from email.policy import default as default_policy
 from urllib.parse import parse_qs, unquote, urlparse
@@ -17,6 +18,8 @@ import pytest
 from googleapiclient.discovery import build
 
 from gmail_agent.gmail import Gmail
+
+ME = "user@example.com"
 
 
 def b64(data: bytes | str) -> str:
@@ -66,11 +69,38 @@ def text_part(part_id: str, text: str, mime: str = "text/plain", charset: str = 
     }
 
 
+def response(status: int, payload=None) -> tuple:
+    if status == 204:
+        return httplib2.Response({"status": "204"}), b""
+    body = json.dumps(payload).encode()
+    return httplib2.Response({"status": str(status), "content-type": "application/json"}), body
+
+
+def not_found(what: str = "Requested entity was not found.") -> tuple:
+    return response(404, {"error": {"code": 404, "message": what}})
+
+
 class Mailbox:
+    """The state behind the fake API, plus a log of every write for assertions."""
+
     def __init__(self) -> None:
         self.messages: dict[str, dict] = {}
         self.attachment_data: dict[tuple[str, str], bytes] = {}
-        self.drafts: list[dict] = []
+        self.labels: list[dict] = [
+            {"id": "INBOX", "name": "INBOX", "type": "system"},
+            {"id": "UNREAD", "name": "UNREAD", "type": "system"},
+            {"id": "STARRED", "name": "STARRED", "type": "system"},
+            {"id": "TRASH", "name": "TRASH", "type": "system"},
+            {"id": "Label_1", "name": "Receipts", "type": "user"},
+        ]
+        self.drafts: dict[str, dict] = {}
+        self.sent: list[dict] = []
+        self.writes: list[tuple[str, str, dict | None]] = []
+        self._counter = 100
+
+    def next_id(self, prefix: str) -> str:
+        self._counter += 1
+        return f"{prefix}{self._counter}"
 
     def add(
         self,
@@ -81,7 +111,7 @@ class Mailbox:
         parts,
         date_ms,
         labels=("INBOX",),
-        to="user@example.com",
+        to=ME,
         extra_headers=None,
     ):
         headers = hdrs(From=sender, To=to, Subject=subject, Date="Thu, 1 Jan 2026 10:00:00 +0000")
@@ -114,21 +144,54 @@ class Mailbox:
             "body": {"attachmentId": att_id, "size": len(data)},
         }
 
+    def payload_from_email(self, part: EmailMessage, msg_id: str, part_id: str = "") -> dict:
+        """Turn an uploaded MIME message into the MessagePart tree Gmail would return."""
+        node = {
+            "partId": part_id,
+            "mimeType": part.get_content_type(),
+            "filename": part.get_filename() or "",
+            "headers": [{"name": k, "value": str(v)} for k, v in part.items()],
+        }
+        if part.is_multipart():
+            node["body"] = {"size": 0}
+            node["parts"] = [
+                self.payload_from_email(child, msg_id, f"{part_id}.{i}" if part_id else str(i))
+                for i, child in enumerate(part.iter_parts())
+            ]
+        else:
+            data = part.get_payload(decode=True) or b""
+            if node["filename"]:
+                att_id = f"ATT-{msg_id}-{part_id}"
+                self.attachment_data[(msg_id, att_id)] = data
+                node["body"] = {"attachmentId": att_id, "size": len(data)}
+            else:
+                node["body"] = {"size": len(data), "data": b64(data)}
+        return node
+
+    def message_from_email(self, mail, msg_id, thread_id, labels) -> dict:
+        return {
+            "id": msg_id,
+            "threadId": thread_id,
+            "labelIds": labels,
+            "snippet": "",
+            "internalDate": "1774000000000",
+            "payload": self.payload_from_email(mail, msg_id),
+        }
+
     def search(self, q: str) -> list[dict]:
         terms = q.lower().split()
         hits = []
         for m in sorted(self.messages.values(), key=lambda m: -int(m["internalDate"])):
             text = " ".join(h["value"] for h in m["payload"]["headers"]).lower()
-            has_att = any(p.get("filename") for p in m["payload"]["parts"])
+            has_att = any(p.get("filename") for p in m["payload"].get("parts", []))
             ok = all(has_att if t == "has:attachment" else t.split(":")[-1] in text for t in terms)
             if ok:
                 hits.append({"id": m["id"], "threadId": m["threadId"]})
         return hits
 
-
-def response(status: int, payload) -> tuple:
-    body = json.dumps(payload).encode()
-    return httplib2.Response({"status": str(status), "content-type": "application/json"}), body
+    def relabel(self, msg: dict, add: list[str], remove: list[str]) -> None:
+        labels = [lb for lb in msg["labelIds"] if lb not in remove]
+        msg["labelIds"] = labels + [lb for lb in add if lb not in labels]
 
 
 class FakeGmailHttp:
@@ -137,6 +200,7 @@ class FakeGmailHttp:
     def __init__(self, mailbox: Mailbox) -> None:
         self.mailbox = mailbox
         self.calls: list[tuple[str, str]] = []
+        self.uploads: dict[str, tuple[str, list[str], dict]] = {}
 
     def request(
         self, uri, method="GET", body=None, headers=None, redirections=1, connection_type=None
@@ -145,34 +209,51 @@ class FakeGmailHttp:
         params = {k: v[0] for k, v in parse_qs(url.query).items()}
         path = unquote(url.path)
         self.calls.append((method, path))
-        box = self.mailbox
+        upload = path.startswith("/upload/")
+        path = path.removeprefix("/upload")
         prefix = "/gmail/v1/users/me/"
-        if path.startswith("/upload" + prefix + "drafts") and method == "POST":
-            return self._create_draft(body, headers)
         if not path.startswith(prefix):
-            return response(404, {"error": {"code": 404, "message": "Not Found"}})
+            return not_found("Not Found")
         parts = path[len(prefix) :].split("/")
+        if method != "GET":
+            data = None if upload or not body else json.loads(body)
+            self.mailbox.writes.append((method, "/".join(parts), data))
+        if upload:
+            return self._resumable(uri, method, parts, params, body, headers)
+        handler = getattr(self, f"_{parts[0]}", None)
+        if handler is None:
+            return not_found("Not Found")
+        return handler(method, parts[1:], params, json.loads(body) if body else {})
 
-        if parts == ["profile"]:
-            return response(
-                200,
-                {
-                    "emailAddress": "user@example.com",
-                    "messagesTotal": len(box.messages),
-                    "threadsTotal": 2,
-                },
-            )
-        if parts == ["labels"]:
-            return response(
-                200,
-                {
-                    "labels": [
-                        {"id": "Label_1", "name": "Receipts", "type": "user"},
-                        {"id": "INBOX", "name": "INBOX", "type": "system"},
-                    ]
-                },
-            )
-        if parts == ["messages"]:
+    # /profile
+    def _profile(self, method, rest, params, data):
+        box = self.mailbox
+        return response(200, {"emailAddress": ME, "messagesTotal": len(box.messages)})
+
+    # /labels
+    def _labels(self, method, rest, params, data):
+        box = self.mailbox
+        if not rest:
+            if method == "GET":
+                return response(200, {"labels": box.labels})
+            label = {"id": box.next_id("Label_"), "name": data["name"], "type": "user"}
+            box.labels.append(label)
+            return response(200, label)
+        label = next((lb for lb in box.labels if lb["id"] == rest[0]), None)
+        if label is None:
+            return not_found()
+        if method == "PATCH":
+            label["name"] = data["name"]
+            return response(200, label)
+        if method == "DELETE":
+            box.labels.remove(label)
+            return response(204)
+        return response(200, label)
+
+    # /messages
+    def _messages(self, method, rest, params, data):
+        box = self.mailbox
+        if not rest:
             hits = box.search(params.get("q", ""))
             start = int(params.get("pageToken", 0))
             size = int(params.get("maxResults", 100))
@@ -183,53 +264,134 @@ class FakeGmailHttp:
             if start + size < len(hits):
                 out["nextPageToken"] = str(start + size)
             return response(200, out)
-        if len(parts) == 2 and parts[0] == "messages":
-            msg = box.messages.get(parts[1])
-            return (
-                response(200, msg)
-                if msg
-                else response(
-                    404, {"error": {"code": 404, "message": "Requested entity was not found."}}
+        if rest == ["batchModify"]:
+            for mid in data["ids"]:
+                box.relabel(
+                    box.messages[mid], data.get("addLabelIds", []), data.get("removeLabelIds", [])
                 )
-            )
-        if len(parts) == 4 and parts[0] == "messages" and parts[2] == "attachments":
-            data = box.attachment_data.get((parts[1], parts[3]))
-            if data is None:
+            return response(204)
+        if rest == ["batchDelete"]:
+            for mid in data["ids"]:
+                box.messages.pop(mid, None)
+            return response(204)
+        msg = box.messages.get(rest[0])
+        if len(rest) == 3 and rest[1] == "attachments":
+            blob = box.attachment_data.get((rest[0], rest[2]))
+            if blob is None:
                 return response(
                     400, {"error": {"code": 400, "message": "Invalid attachment token"}}
                 )
-            return response(200, {"size": len(data), "data": b64(data)})
-        if len(parts) == 2 and parts[0] == "threads":
-            msgs = sorted(
-                (m for m in box.messages.values() if m["threadId"] == parts[1]),
-                key=lambda m: int(m["internalDate"]),
-            )
-            if not msgs:
-                return response(
-                    404, {"error": {"code": 404, "message": "Requested entity was not found."}}
-                )
-            return response(200, {"id": parts[1], "messages": msgs})
-        return response(404, {"error": {"code": 404, "message": "Not Found"}})
+            return response(200, {"size": len(blob), "data": b64(blob)})
+        if msg is None:
+            return not_found()
+        action = rest[1] if len(rest) > 1 else None
+        if action == "modify":
+            box.relabel(msg, data.get("addLabelIds", []), data.get("removeLabelIds", []))
+        elif action == "trash":
+            box.relabel(msg, ["TRASH"], ["INBOX"])
+        elif action == "untrash":
+            box.relabel(msg, [], ["TRASH"])
+        elif method == "DELETE":
+            del box.messages[rest[0]]
+            return response(204)
+        return response(200, msg)
 
-    def _create_draft(self, body, headers):
-        ctype = next(v for k, v in headers.items() if k.lower() == "content-type")
-        raw = body if isinstance(body, bytes) else body.encode()
-        multipart = BytesParser(policy=default_policy).parsebytes(
-            b"Content-Type: " + ctype.encode() + b"\r\n\r\n" + raw
+    # /threads
+    def _threads(self, method, rest, params, data):
+        box = self.mailbox
+        msgs = sorted(
+            (m for m in box.messages.values() if m["threadId"] == rest[0]),
+            key=lambda m: int(m["internalDate"]),
         )
-        meta_part, mail_part = list(multipart.iter_parts())
-        metadata = json.loads(meta_part.get_content())
-        assert mail_part.get_content_type() == "message/rfc822"
-        mail = mail_part.get_payload(0)
-        self.mailbox.drafts.append({"metadata": metadata, "mail": mail})
-        thread = metadata.get("message", {}).get("threadId", "t-new")
-        return response(200, {"id": "d1", "message": {"id": "m-draft", "threadId": thread}})
+        if not msgs:
+            return not_found()
+        action = rest[1] if len(rest) > 1 else None
+        for msg in msgs:
+            if action == "modify":
+                box.relabel(msg, data.get("addLabelIds", []), data.get("removeLabelIds", []))
+            elif action == "trash":
+                box.relabel(msg, ["TRASH"], ["INBOX"])
+            elif action == "untrash":
+                box.relabel(msg, [], ["TRASH"])
+            elif method == "DELETE":
+                del box.messages[msg["id"]]
+        if method == "DELETE":
+            return response(204)
+        return response(200, {"id": rest[0], "messages": msgs})
+
+    # /drafts
+    def _drafts(self, method, rest, params, data):
+        box = self.mailbox
+        if not rest:
+            items = [
+                {"id": d["id"], "message": {"id": d["message"]["id"]}} for d in box.drafts.values()
+            ]
+            return response(200, {"drafts": items} if items else {})
+        if rest == ["send"]:
+            draft = box.drafts.pop(data["id"], None)
+            if draft is None:
+                return not_found()
+            box.sent.append({"metadata": data, "mail": draft["mail"], "id": draft["message"]["id"]})
+            msg = draft["message"]
+            return response(
+                200, {"id": msg["id"], "threadId": msg["threadId"], "labelIds": ["SENT"]}
+            )
+        draft = box.drafts.get(rest[0])
+        if draft is None:
+            return not_found()
+        if method == "DELETE":
+            del box.drafts[rest[0]]
+            return response(204)
+        return response(200, {"id": draft["id"], "message": draft["message"]})
+
+    def _resumable(self, uri, method, parts, params, body, headers):
+        """Resumable media upload: a start request with the JSON metadata, then a PUT with
+        the bytes to the session URI it handed out."""
+        if params.get("uploadType") == "resumable":
+            assert headers["X-Upload-Content-Type"] == "message/rfc822"
+            upload_id = f"up{len(self.uploads)}"
+            self.uploads[upload_id] = (method, parts, json.loads(body) if body else {})
+            location = f"{uri.split('?')[0]}?upload_id={upload_id}"
+            return httplib2.Response({"status": "200", "location": location}), b""
+        method, parts, metadata = self.uploads.pop(params["upload_id"])
+        raw = body.read() if hasattr(body, "read") else body
+        mail = BytesParser(policy=default_policy).parsebytes(raw)
+        return self._upload(method, parts, metadata, mail)
+
+    def _upload(self, method, parts, metadata, mail):
+        box = self.mailbox
+        meta_msg = metadata.get("message", metadata)
+        thread_id = meta_msg.get("threadId") or box.next_id("t-new-")
+        if parts == ["messages", "send"]:
+            msg_id = box.next_id("sent-")
+            box.sent.append({"metadata": metadata, "mail": mail, "id": msg_id})
+            return response(200, {"id": msg_id, "threadId": thread_id, "labelIds": ["SENT"]})
+        if parts == ["drafts"] and method == "POST":
+            draft_id = box.next_id("d")
+        elif parts[0] == "drafts" and method == "PUT" and parts[1] in box.drafts:
+            draft_id = parts[1]
+        else:
+            return not_found()
+        msg = box.message_from_email(mail, box.next_id("m-draft-"), thread_id, ["DRAFT"])
+        box.drafts[draft_id] = {"id": draft_id, "message": msg, "mail": mail, "metadata": metadata}
+        return response(200, {"id": draft_id, "message": {"id": msg["id"], "threadId": thread_id}})
 
     def close(self):
         return None
 
 
 PDF_BYTES = minimal_pdf("Total due 120 EUR")
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Fail loudly if anything tries to reach Google for real."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("test tried to use the network")
+
+    monkeypatch.setattr(httplib2.Http, "request", refuse)
+    monkeypatch.setattr("google.auth.transport.requests.Request.__call__", refuse)
 
 
 @pytest.fixture(autouse=True)
@@ -280,6 +442,9 @@ def mailbox() -> Mailbox:
             ),
         ],
         date_ms=1_772_000_000_000,
+        labels=("INBOX", "UNREAD"),
+        to=f"{ME}, Carol <carol@example.com>",
+        extra_headers=hdrs(Cc="Dave <dave@example.com>"),
     )
     box.add(
         "m2",
@@ -299,16 +464,17 @@ def mailbox() -> Mailbox:
             box.attachment("m2", "3", "archive.zip", b"PK\x03\x04", "application/zip", "ATT-ZIP"),
         ],
         date_ms=1_771_000_000_000,
+        extra_headers=hdrs(Reply_To="Alice Lists <alice-lists@example.com>"),
     )
     box.add(
         "m3",
         "t1",
         "Re: Invoice March",
-        "User <user@example.com>",
+        f"User <{ME}>",
         [text_part("0", "Thanks, paid.")],
         date_ms=1_773_000_000_000,
         to="billing@example.com",
-        extra_headers=hdrs(References="<m1@mail.example.com>"),
+        extra_headers=hdrs(References="<m1@mail.example.com>", In_Reply_To="<m1@mail.example.com>"),
     )
     return box
 
@@ -319,6 +485,16 @@ def fake_http(mailbox) -> FakeGmailHttp:
 
 
 @pytest.fixture
-def gmail(fake_http) -> Gmail:
-    service = build("gmail", "v1", http=fake_http, static_discovery=True)
+def service(fake_http):
+    return build("gmail", "v1", http=fake_http, static_discovery=True)
+
+
+@pytest.fixture
+def gmail(service) -> Gmail:
     return Gmail(service)
+
+
+@pytest.fixture
+def gmail_with(service):
+    """A Gmail client that believes the login granted exactly these scopes."""
+    return lambda scopes: Gmail(service, scopes)

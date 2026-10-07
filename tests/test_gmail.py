@@ -75,7 +75,9 @@ def test_get_thread_oldest_first(gmail):
 
 
 def test_labels_system_first(gmail):
-    assert [lb["id"] for lb in gmail.labels()] == ["INBOX", "Label_1"]
+    ids = [lb["id"] for lb in gmail.labels()]
+    assert ids[-1] == "Label_1"
+    assert set(ids[:-1]) == {"INBOX", "UNREAD", "STARRED", "TRASH"}
 
 
 def test_profile(gmail):
@@ -154,38 +156,3 @@ def test_read_text_attachment_by_part_id(gmail):
 def test_read_unsupported_type(gmail):
     with pytest.raises(GmailAgentError, match="download it instead"):
         gmail.read_attachment_text("m2", "archive.zip")
-
-
-def test_create_draft_with_attachment(gmail, mailbox, tmp_path):
-    file = tmp_path / "summary.pdf"
-    file.write_bytes(b"%PDF-1.4 fake")
-    res = gmail.create_draft(["bob@example.com"], "Summary", "See attached.", attachments=[file])
-    assert res["draft_id"] == "d1"
-    mail = mailbox.drafts[0]["mail"]
-    assert mail["To"] == "bob@example.com"
-    assert mail["Subject"] == "Summary"
-    att = next(mail.iter_attachments())
-    assert att.get_filename() == "summary.pdf"
-    assert att.get_content_type() == "application/pdf"
-    assert att.get_content() == b"%PDF-1.4 fake"
-
-
-def test_create_draft_reply_threads_and_defaults(gmail, mailbox):
-    res = gmail.create_draft([], None, "Thanks!", reply_to_message_id="m1")
-    draft = mailbox.drafts[0]
-    assert draft["metadata"] == {"message": {"threadId": "t1"}}
-    assert res["thread_id"] == "t1"
-    mail = draft["mail"]
-    assert mail["To"] == "Billing <billing@example.com>"
-    assert mail["Subject"] == "Re: Invoice March"
-    assert mail["In-Reply-To"] == "<m1@mail.example.com>"
-
-
-def test_create_draft_needs_recipient(gmail):
-    with pytest.raises(GmailAgentError, match="recipient"):
-        gmail.create_draft([], "Hi", "body")
-
-
-def test_create_draft_missing_file(gmail, tmp_path):
-    with pytest.raises(GmailAgentError, match="Attachment not found"):
-        gmail.create_draft(["bob@example.com"], "Hi", "body", attachments=[tmp_path / "x"])

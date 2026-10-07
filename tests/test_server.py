@@ -3,6 +3,8 @@ import sys
 import pytest
 from mcp import Client, StdioServerParameters
 
+from gmail_agent import config
+from gmail_agent.gmail import Gmail
 from gmail_agent.server import build_server
 
 READ_TOOLS = {
@@ -15,6 +17,24 @@ READ_TOOLS = {
     "download_attachments",
     "download_matching_attachments",
     "read_attachment_text",
+    "list_drafts",
+    "get_draft",
+}
+WRITE_TOOLS = {
+    "send_message",
+    "reply_to_message",
+    "forward_message",
+    "create_draft",
+    "update_draft",
+    "send_draft",
+    "delete_draft",
+    "create_label",
+    "rename_label",
+    "delete_label",
+    "modify_labels",
+    "mark_messages",
+    "trash",
+    "untrash",
 }
 
 
@@ -23,27 +43,40 @@ def anyio_backend():
     return "asyncio"
 
 
-def server_with(gmail, allow_drafts=False):
-    return build_server(allow_drafts=allow_drafts, connect=lambda needs_drafts: gmail)
+def server_with(gmail, **kw):
+    return build_server(connect=lambda: gmail, **kw)
+
+
+async def tool_map(server):
+    async with Client(server) as client:
+        return {t.name: t for t in (await client.list_tools()).tools}
 
 
 @pytest.mark.anyio
-async def test_read_only_by_default(gmail):
-    async with Client(server_with(gmail)) as client:
-        tools = {t.name: t for t in (await client.list_tools()).tools}
-    assert set(tools) == READ_TOOLS
+async def test_default_tools_read_and_write_but_no_permanent_delete(gmail):
+    tools = await tool_map(server_with(gmail))
+    assert set(tools) == READ_TOOLS | WRITE_TOOLS
     assert tools["search_messages"].annotations.read_only_hint is True
     assert tools["download_attachments"].annotations.destructive_hint is False
+    assert tools["trash"].annotations.destructive_hint is True
+    assert tools["send_message"].annotations.read_only_hint is False
     schema = tools["download_attachments"].input_schema
     assert schema["required"] == ["message_id", "out_dir"]
     assert "attachments" in schema["properties"]
+    actions = tools["mark_messages"].input_schema["properties"]["action"]["enum"]
+    assert set(actions) == {"read", "unread", "star", "unstar", "archive", "unarchive"}
 
 
 @pytest.mark.anyio
-async def test_drafts_only_when_opted_in(gmail):
-    async with Client(server_with(gmail, allow_drafts=True)) as client:
-        names = {t.name for t in (await client.list_tools()).tools}
-    assert names == READ_TOOLS | {"create_draft"}
+async def test_read_only_server(gmail):
+    assert set(await tool_map(server_with(gmail, read_only=True))) == READ_TOOLS
+
+
+@pytest.mark.anyio
+async def test_allow_delete_adds_permanent_delete(gmail):
+    tools = await tool_map(server_with(gmail, allow_delete=True))
+    assert set(tools) == READ_TOOLS | WRITE_TOOLS | {"delete_permanently"}
+    assert tools["delete_permanently"].annotations.destructive_hint is True
 
 
 @pytest.mark.anyio
@@ -73,6 +106,41 @@ async def test_read_attachment_text(gmail):
 
 
 @pytest.mark.anyio
+async def test_reply_dry_run_then_send(gmail, mailbox):
+    async with Client(server_with(gmail)) as client:
+        dry = await client.call_tool(
+            "reply_to_message", {"message_id": "m1", "body": "Paid", "dry_run": True}
+        )
+        assert dry.structured_content["dry_run"] is True
+        assert "In-Reply-To: <m1@mail.example.com>" in dry.structured_content["mime"]
+        assert mailbox.sent == []
+        sent = await client.call_tool("reply_to_message", {"message_id": "m1", "body": "Paid"})
+    assert sent.structured_content["sent"] is True
+    assert sent.structured_content["id"] == mailbox.sent[0]["id"]
+
+
+@pytest.mark.anyio
+async def test_mark_and_trash(gmail, mailbox):
+    async with Client(server_with(gmail)) as client:
+        res = await client.call_tool("mark_messages", {"ids": ["m1"], "action": "star"})
+        assert not res.is_error
+        await client.call_tool("trash", {"ids": ["m2"]})
+    assert "STARRED" in mailbox.messages["m1"]["labelIds"]
+    assert "TRASH" in mailbox.messages["m2"]["labelIds"]
+
+
+@pytest.mark.anyio
+async def test_scope_errors_are_readable(service):
+    readonly = Gmail(service, config.LEVELS["readonly"])
+    async with Client(server_with(readonly)) as client:
+        res = await client.call_tool(
+            "send_message", {"to": ["bob@example.com"], "subject": "x", "body": "y"}
+        )
+    assert res.is_error
+    assert "gmail-agent login --scope compose" in res.content[0].text
+
+
+@pytest.mark.anyio
 async def test_errors_come_back_as_tool_errors(gmail):
     async with Client(server_with(gmail)) as client:
         res = await client.call_tool("get_message", {"message_id": "nope"})
@@ -98,7 +166,7 @@ async def test_stdio_handshake(isolated_config):
     )
     async with Client(params) as client:
         names = {t.name for t in (await client.list_tools()).tools}
-        assert names == READ_TOOLS
+        assert names == READ_TOOLS | WRITE_TOOLS
         res = await client.call_tool("search_messages", {"query": "x"})
         assert res.is_error
         assert "No OAuth client file" in res.content[0].text

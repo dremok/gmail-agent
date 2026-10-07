@@ -13,7 +13,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 from . import config
-from .errors import SetupError
+from .errors import GmailAgentError, SetupError
 
 SETUP_HINT = "See https://github.com/dremok/gmail-agent#google-cloud-setup"
 
@@ -25,15 +25,25 @@ def _missing_client_error() -> SetupError:
     )
 
 
-def login(allow_drafts: bool = False, open_browser: bool = True) -> Credentials:
+def granted_scopes(creds: Credentials) -> list[str]:
+    """What the user actually ticked on the consent screen (they can untick scopes)."""
+    granted = creds.granted_scopes or creds.scopes or []
+    return granted.split() if isinstance(granted, str) else list(granted)
+
+
+def login(level: str = config.DEFAULT_LEVEL, open_browser: bool = True) -> Credentials:
     """Run the browser consent flow and save the token. Needs credentials.json."""
     from google_auth_oauthlib.flow import InstalledAppFlow
 
+    if level not in config.LEVELS:
+        raise GmailAgentError(
+            f"Unknown scope level {level!r}. Use one of: {', '.join(config.LEVELS)}"
+        )
     client = config.credentials_path()
     if not client.exists():
         raise _missing_client_error()
     try:
-        flow = InstalledAppFlow.from_client_secrets_file(str(client), config.scopes(allow_drafts))
+        flow = InstalledAppFlow.from_client_secrets_file(str(client), config.LEVELS[level])
     except (ValueError, json.JSONDecodeError) as e:
         raise SetupError(
             f"{client} is not a valid OAuth client file ({e}). Download the JSON for a client "
@@ -47,11 +57,11 @@ def login(allow_drafts: bool = False, open_browser: bool = True) -> Credentials:
             authorization_prompt_message="Open this URL in a browser to log in:\n{url}",
             success_message="gmail-agent is logged in. You can close this tab.",
         )
-    save_token(creds)
+    save_token(creds, scopes=granted_scopes(creds))
     return creds
 
 
-def save_token(creds: Credentials) -> Path:
+def save_token(creds: Credentials, scopes: list[str] | None = None) -> Path:
     """Write the token with owner-only permissions (0600), replacing any old one atomically."""
     path = config.token_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,7 +69,10 @@ def save_token(creds: Credentials) -> Path:
     tmp = path.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        f.write(creds.to_json())
+        data = json.loads(creds.to_json())
+        if scopes is not None:
+            data["scopes"] = scopes
+        f.write(json.dumps(data))
     os.chmod(tmp, 0o600)
     os.replace(tmp, path)
     return path
@@ -74,7 +87,7 @@ def logout() -> bool:
     return True
 
 
-def load_credentials(require_drafts: bool = False) -> Credentials:
+def load_credentials() -> Credentials:
     """Load the saved token, refreshing it if needed. Never opens a browser."""
     path = config.token_path()
     if not path.exists():
@@ -85,12 +98,6 @@ def load_credentials(require_drafts: bool = False) -> Credentials:
         creds = Credentials.from_authorized_user_file(str(path))
     except (ValueError, json.JSONDecodeError) as e:
         raise SetupError(f"Token file {path} is unreadable ({e}). Run: gmail-agent login") from e
-
-    if require_drafts and config.COMPOSE_SCOPE not in (creds.scopes or []):
-        raise SetupError(
-            "Creating drafts needs the gmail.compose scope, which this login did not grant. "
-            "Run: gmail-agent login --allow-drafts"
-        )
 
     if not creds.valid:
         if not creds.refresh_token:

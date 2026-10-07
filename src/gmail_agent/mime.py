@@ -78,8 +78,8 @@ def decode_text(data: bytes, encoding: str) -> str:
         return data.decode("utf-8", errors="replace")
 
 
-def body_text(payload: dict) -> tuple[str, str]:
-    """The readable body and where it came from: "plain", "html" (converted) or "none"."""
+def body_parts(payload: dict) -> tuple[str | None, str | None]:
+    """The plain-text and HTML bodies as written, each None if the message has none."""
     plain, html = [], []
     for part in walk(payload):
         data = part.get("body", {}).get("data")
@@ -90,10 +90,19 @@ def body_text(payload: dict) -> tuple[str, str]:
             plain.append(decode_text(b64decode(data), charset(part)))
         elif mime == "text/html":
             html.append(decode_text(b64decode(data), charset(part)))
-    if plain:
-        return "\n\n".join(t.strip() for t in plain), "plain"
-    if html:
-        return "\n\n".join(html_to_text(t) for t in html), "html"
+    return (
+        "\n\n".join(t.strip() for t in plain) if plain else None,
+        "\n".join(html) if html else None,
+    )
+
+
+def body_text(payload: dict) -> tuple[str, str]:
+    """The readable body and where it came from: "plain", "html" (converted) or "none"."""
+    plain, html = body_parts(payload)
+    if plain is not None:
+        return plain, "plain"
+    if html is not None:
+        return html_to_text(html), "html"
     return "", "none"
 
 

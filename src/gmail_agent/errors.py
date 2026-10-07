@@ -5,9 +5,15 @@ class GmailAgentError(Exception):
 
 
 class SetupError(GmailAgentError):
-    """A setup step is missing: no OAuth client, not logged in, token expired, missing scope."""
+    """A setup step is missing: no OAuth client, not logged in, token expired."""
 
     code = "setup"
+
+
+class ScopeError(SetupError):
+    """The login works but did not grant the scope this call needs."""
+
+    code = "scope"
 
 
 class NotFoundError(GmailAgentError):
