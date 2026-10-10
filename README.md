@@ -1,5 +1,10 @@
 # gmail-agent
 
+[![PyPI](https://img.shields.io/pypi/v/gmail-agent)](https://pypi.org/project/gmail-agent/)
+[![Python](https://img.shields.io/pypi/pyversions/gmail-agent)](https://pypi.org/project/gmail-agent/)
+[![CI](https://github.com/dremok/gmail-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/dremok/gmail-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/dremok/gmail-agent/blob/main/LICENSE)
+
 Gmail for AI agents and the people who run them: search, read, download attachments, send, reply, forward, drafts, labels and trash.
 
 <!-- mcp-name: io.github.dremok/gmail-agent -->
@@ -10,6 +15,8 @@ Gmail for AI agents and the people who run them: search, read, download attachme
 - an **MCP server** over stdio for clients like Claude Desktop and Claude Code
 
 It talks directly to the Gmail API from your machine using your own Google Cloud OAuth client, so there is no third-party server in between. You choose how much access it gets when you log in, from read-only up to full.
+
+Why another one? A lot of real agent work with mail is about attachments: find last quarter's invoices, save them, read the PDFs. The hosted Gmail connectors can't save files to disk, and the most used open-source Gmail MCP server is archived. gmail-agent handles attachments well, shows you any write before it happens, and only offers the tools your login allows. See [How it compares](https://github.com/dremok/gmail-agent#how-it-compares).
 
 ## What it does
 
@@ -53,6 +60,67 @@ gmail-agent setup       # Google Cloud project, OAuth client and login; default 
 gmail-agent status      # shows the logged-in account and access level
 gmail-agent search "has:attachment newer_than:7d"
 ```
+
+Then connect your agent. In Claude Code: `/plugin install gmail-agent --marketplace dremok/gmail-agent`. For Codex, Gemini CLI, VS Code, Cursor and Claude Desktop, see [MCP server](https://github.com/dremok/gmail-agent#mcp-server).
+
+## How it compares
+
+Checked against each project's source and docs in October 2026. Corrections are welcome as issues.
+
+| | gmail-agent | Claude's Gmail connector | [google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp) | [GongRzhe Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) |
+|---|---|---|---|---|
+| Setup | Your own OAuth client; `gmail-agent setup` guides you (about 5 minutes) | One click | Your own OAuth client, by hand | Your own OAuth client, by hand |
+| Runs as | CLI and stdio MCP, on your machine | Hosted (web, desktop, mobile) | stdio or HTTP, multi-user | stdio MCP |
+| Save attachments to disk | Yes, never overwrites | No | Yes, to its own folder, deleted after an hour | Yes, overwrites files with the same name |
+| Every attachment matching a search | Yes | No | No | No |
+| Text of PDF attachments | Yes | No | No | No |
+| Forward with original attachments | Yes | Not documented | Yes | No forward |
+| Drafts | Create, update, send, delete | Yes | Create only | Create only |
+| Dry run of every write, with the MIME message | Yes | No, asks before each write instead | No | No |
+| Read-only mode | Yes | No, the grant includes sending | Yes | No |
+| Tool list follows the granted scope | Yes | No | From server flags | No |
+| Permanent delete | Only with `--allow-delete` and a `full` login | Not offered | Not offered | Offered without a guard |
+| Drive, Calendar, Docs | No, Gmail only | Separate connectors | Yes | No |
+| Maintained | Yes | Yes | Yes | Archived in 2025 |
+
+Use something else if:
+
+- **You want no setup, or use Claude on the web or your phone.** The built-in connector is one click away.
+- **You need Drive, Calendar and Docs in the same server, or one server for a team over HTTP.** google_workspace_mcp covers all of Workspace.
+- **You need Gmail filters, sending from an alias, your Gmail signature or inline images in outgoing mail.** gmail-agent does none of these yet.
+- **You want a plain CLI for all of Google Workspace.** [googleworkspace/cli](https://github.com/googleworkspace/cli) (`gws`) is a good one. It dropped its MCP server in version 0.8.0.
+
+## Coming from GongRzhe/Gmail-MCP-Server?
+
+That server is archived. Moving takes a few minutes, and you can keep your Google Cloud project.
+
+1. **Install:** `uv tool install gmail-agent`
+2. **Reuse your OAuth client, not your token.** Setup checks the client, installs it and logs you in:
+
+   ```sh
+   gmail-agent setup --client-file ~/.gmail-mcp/gcp-oauth.keys.json
+   ```
+
+   Do not copy GongRzhe's `credentials.json` by hand. Despite the name it is your login token, while gmail-agent's `credentials.json` is the OAuth client, and the token formats differ anyway. gmail-agent needs a **Desktop app** client. If yours is a Web application client, setup says so; create a Desktop client in the same project and pass that file instead.
+3. **Point your MCP client at gmail-agent.** Replace `npx @gongrzhe/server-gmail-autoauth-mcp` with `gmail-agent mcp`, for example `claude mcp add gmail --scope user -- gmail-agent mcp`. For Claude Desktop, see [MCP server](https://github.com/dremok/gmail-agent#mcp-server).
+4. **Optional cleanup:** revoke the old grant at [myaccount.google.com/permissions](https://myaccount.google.com/permissions) and remove `~/.gmail-mcp`.
+
+| GongRzhe tool | gmail-agent tool | Notes |
+|---|---|---|
+| `search_emails` | `search_messages` | Adds paging with `page_token` |
+| `read_email` | `get_message`, `get_thread` | HTML mail comes back as text |
+| `send_email` | `send_message`, `reply_to_message` | Replies set the threading headers for you |
+| `draft_email` | `create_draft`, or any send tool with `as_draft` | Drafts can also be updated and sent |
+| `modify_email`, `batch_modify_emails` | `modify_labels`, `mark_messages` | Labels by name or id |
+| `delete_email`, `batch_delete_emails` | `trash` | Permanent delete needs `mcp --allow-delete` and a `full` login |
+| `list_email_labels` | `list_labels` | |
+| `create_label`, `update_label`, `delete_label` | `create_label`, `rename_label`, `delete_label` | No visibility options |
+| `get_or_create_label` | `list_labels`, then `create_label` | |
+| `download_attachment` | `download_attachments` | Picks by filename or part id, never overwrites |
+| | `download_matching_attachments`, `read_attachment_text`, `forward_message` | New |
+| `create_filter` and the other filter tools | None | gmail-agent never touches settings, filters or forwarding |
+
+Two behaviours differ on purpose: delete means trash unless you opt in, and the tool list shrinks to what your login allows. If tools seem to be missing, check the level with `gmail-agent status`.
 
 ## Google Cloud setup
 
@@ -192,12 +260,38 @@ For mail, the dry run also prints the MIME message: every header and body part, 
 
 `gmail-agent mcp` runs an MCP server over stdio. It starts even before you log in; tools then return an error telling the user to run `gmail-agent login`.
 
-**Claude Code** (`--scope user` here is Claude Code's config scope, not the Gmail access level):
+**Claude Code plugin** (recommended for Claude Code). It adds the MCP server plus a skill that tells Claude when and how to use it: attachments, dry runs before sending, and treating mail as untrusted.
+
+```text
+/plugin install gmail-agent --marketplace dremok/gmail-agent
+```
+
+On Claude Code older than 2.1.275, run `/plugin marketplace add dremok/gmail-agent`, then `/plugin install gmail-agent@dremok`. The plugin runs the server with `uvx`, so you need [uv](https://docs.astral.sh/uv/). If you also added the server with `claude mcp add`, remove that entry (`claude mcp remove gmail`) or you get every tool twice.
+
+**Claude Code without the plugin** (`--scope user` here is Claude Code's config scope, not the Gmail access level):
 
 ```sh
 claude mcp add gmail --scope user -- gmail-agent mcp
 claude mcp add gmail --scope user -- gmail-agent mcp --read-only      # reading tools only
 claude mcp add gmail --scope user -- uvx gmail-agent mcp              # without installing first
+```
+
+**Codex, Gemini CLI and VS Code:**
+
+```sh
+codex mcp add gmail -- uvx gmail-agent mcp
+gemini mcp add --scope user gmail uvx gmail-agent mcp
+code --add-mcp '{"name":"gmail","command":"uvx","args":["gmail-agent","mcp"]}'
+```
+
+**Cursor, Windsurf, Cline and other clients** take the usual JSON (for Cursor, in `~/.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "gmail": { "command": "uvx", "args": ["gmail-agent", "mcp"] }
+  }
+}
 ```
 
 **Claude Desktop:** edit `claude_desktop_config.json` (Settings > Developer > Edit Config). Desktop apps often do not see your shell's PATH, so use the absolute path from `which gmail-agent`:

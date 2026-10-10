@@ -4,6 +4,8 @@
 
 First release on PyPI and in the MCP Registry: `uv tool install gmail-agent`, or `uvx gmail-agent mcp`.
 
+The repo is also a Claude Code plugin: `/plugin install gmail-agent --marketplace dremok/gmail-agent` adds the MCP server and a skill.
+
 ### New
 
 - **`gmail-agent setup`** walks you through the one-time Google Cloud setup. With gcloud installed and logged in it creates the project and enables the Gmail API; otherwise it opens the console pages. It opens the consent screen and client pages for your project, picks up the downloaded client file from `~/Downloads` (or `--client-file`, or a pasted ID and secret), checks it is a Desktop client, installs it readable only by you, logs in and checks the account. Run it again any time; it skips what is done.
@@ -11,6 +13,7 @@ First release on PyPI and in the MCP Registry: `uv tool install gmail-agent`, or
 - **Links survive in HTML mail**: a link's URL now follows its text, as `text (url)`.
 - **Send-as aliases count as you** when replying: reply-all leaves out every verified alias, and a reply to mail you sent from an alias goes to its recipients.
 - `--json` works before or after the command, and the MCP server only offers the tools your login's access level allows.
+- **Easier for agents to find.** Every MCP tool has a title, and each description says up front that it is about email or Gmail, so clients that load tools on demand by keyword search (Claude Code does) find them. The server instructions say when to use them.
 
 ### Fixed
 
