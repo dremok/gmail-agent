@@ -182,7 +182,8 @@ def build_server(
         attachments: list[str] | None = None,
         skip_inline: bool = False,
     ) -> dict[str, Any]:
-        """Save a message's attachments into out_dir (created if missing; ~ is expanded).
+        """Save a message's attachments into out_dir (created if missing; ~ is expanded; give an
+        absolute path, since a relative one is resolved against the server's working directory).
         attachments: filenames or part ids to save; omit to save all. Existing files are
         never overwritten. Returns the absolute path of every saved file."""
         return {"saved": gmail().download(message_id, out_dir, attachments, skip_inline)}
@@ -196,8 +197,8 @@ def build_server(
         skip_inline: bool = False,
     ) -> dict[str, Any]:
         """Save every attachment from messages matching a Gmail query (has:attachment is added
-        if missing). filename_glob filters names, e.g. "*.pdf". more_messages is true when
-        more than max_messages matched."""
+        if missing) into out_dir, like download_attachments. filename_glob filters names, e.g.
+        "*.pdf". more_messages is true when more than max_messages (1 to 500) matched."""
         return gmail().download_matching(query, out_dir, filename_glob, max_messages, skip_inline)
 
     @tool(READ, untrusted=True)
@@ -237,7 +238,9 @@ def build_server(
     ) -> dict[str, Any]:
         """Send a new email. body is plain text; html adds an HTML version (a plain version is
         derived if body is omitted). attachment_paths are local files. as_draft saves it to
-        Drafts instead. Returns the sent message id and thread_id (or draft_id)."""
+        Drafts instead. Returns the sent message id and thread_id (or draft_id).
+        Sending cannot be undone: unless the user clearly asked to send, use as_draft=true or
+        dry_run=true and show them the result first."""
         return gmail().send(to, subject, body, html, cc, bcc, attachment_paths, as_draft, dry_run)
 
     @tool(hints(destructive=True), "compose")
@@ -255,7 +258,9 @@ def build_server(
     ) -> dict[str, Any]:
         """Reply in the same thread. Recipients, "Re:" subject and In-Reply-To/References
         headers are set from the original; reply_all adds its other To and Cc addresses
-        (never the user's own). quote appends the original below the reply."""
+        (never the user's own). quote appends the original below the reply.
+        Sending cannot be undone: unless the user clearly asked to send, use as_draft=true or
+        dry_run=true and show them the result first."""
         return gmail().reply(
             message_id, body, html, reply_all, cc, bcc, attachment_paths, quote, as_draft, dry_run
         )
@@ -274,7 +279,9 @@ def build_server(
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Forward a message, by default with its attachments. body is a note placed above
-        the forwarded message. attachment_paths adds local files."""
+        the forwarded message. attachment_paths adds local files.
+        Sending cannot be undone: unless the user clearly asked to send, use as_draft=true or
+        dry_run=true and show them the result first."""
         return gmail().forward(
             message_id,
             to,
