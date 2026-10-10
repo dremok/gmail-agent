@@ -42,39 +42,44 @@ You need [uv](https://docs.astral.sh/uv/) (or pipx) and Python 3.11+.
 uv tool install git+https://github.com/dremok/gmail-agent
 ```
 
-Then do the [Google Cloud setup](#google-cloud-setup) once (about 5 minutes), and:
+Then set it up once (about 5 minutes, guided):
 
 ```sh
-gmail-agent login       # opens a browser, one time; default access level is "modify"
+gmail-agent setup       # Google Cloud project, OAuth client and login; default access level is "modify"
 gmail-agent status      # shows the logged-in account and access level
 gmail-agent search "has:attachment newer_than:7d"
 ```
 
 ## Google Cloud setup
 
-Gmail has no API keys for personal mail, so you create your own OAuth client. It is free and you only do it once.
+Gmail has no API keys for personal mail, so you create your own OAuth client in Google Cloud. It is free and you do it once. `gmail-agent setup` walks you through it and does what Google lets it do for you:
 
-1. **Create a project.** Go to [console.cloud.google.com/projectcreate](https://console.cloud.google.com/projectcreate), give it a name like `gmail-agent`, and click Create. Make sure the new project is selected in the top bar for the next steps.
-2. **Enable the Gmail API.** Open [the Gmail API page](https://console.cloud.google.com/apis/library/gmail.googleapis.com) and click Enable.
-3. **Configure the consent screen.** Open [Google Auth Platform](https://console.cloud.google.com/auth/overview) and click Get started.
-   - App name: anything, for example `gmail-agent`. Support email: your address.
-   - Audience: **External**.
-   - Contact information: your address. Agree to the policy and click Create.
-4. **Add yourself as a test user.** Go to [Audience](https://console.cloud.google.com/auth/audience), find Test users, click Add users, enter the Gmail address you want to use, and save. While the app is in Testing mode, only test users can log in.
-5. **Create a Desktop client.** Go to [Clients](https://console.cloud.google.com/auth/clients), click Create client, choose application type **Desktop app**, name it, and click Create. Download the JSON from the dialog that appears. Google may not let you download the secret again later; if you miss it, create a new client.
-6. **Put the file where gmail-agent looks for it:**
+1. **Project and Gmail API.** If [gcloud](https://cloud.google.com/sdk/docs/install) is installed and logged in, setup creates a project called `gmail-agent-` plus six random characters (it asks first) and enables the Gmail API. Without gcloud it opens the two console pages and asks for the project ID. `--project ID` uses a project you already have.
+2. **Consent screen and publishing.** Google has no API for these, so setup opens the pages and tells you what to click: app name `gmail-agent`, audience **External**, then **Publish app** so the status is In production. Publishing avoids the 7-day login expiry of Testing mode, and you do not have to add yourself as a test user. Google calls the app unverified, which is expected for your own app and fine for personal use (it is capped at 100 users).
+3. **Desktop client.** Setup opens the Clients page. Create a client of type **Desktop app** and click Download JSON (Google shows the secret only then). Setup spots the file in `~/Downloads`, checks that it is a Desktop client from the right project, and installs it as `~/.config/gmail-agent/credentials.json`, readable only by you. You can also pass `--client-file PATH`, or press Ctrl-C and paste the client ID and secret.
+4. **Login.** A browser opens; pick your account. Google says **"Google hasn't verified this app"**: click Continue and keep all boxes ticked. Setup checks the account and prints `Set up: logged in as you@example.com with modify access`.
+
+Run it again whenever you like; it skips what is already done. Options: `--scope LEVEL` (see [Access levels](#access-levels)), `--no-gcloud`, and `--no-browser`, which prints the links instead of opening them (the login redirect goes to `localhost`, so the browser must run on the same machine).
+
+### Setting up by hand
+
+The same steps without the wizard:
+
+1. **Create a project** at [console.cloud.google.com/projectcreate](https://console.cloud.google.com/projectcreate) and make sure it is selected in the top bar.
+2. **Enable the Gmail API** on [the Gmail API page](https://console.cloud.google.com/apis/library/gmail.googleapis.com).
+3. **Configure the consent screen** in [Google Auth Platform](https://console.cloud.google.com/auth/overview): Get started, app name `gmail-agent`, your address as support and contact email, audience **External**, agree, Create.
+4. **Publish the app** under [Audience](https://console.cloud.google.com/auth/audience) (Publish app, status In production). If you would rather stay in Testing mode, add your address under Test users instead, and expect to log in again every 7 days.
+5. **Create a Desktop client** under [Clients](https://console.cloud.google.com/auth/clients): Create client, application type **Desktop app**, Create, and download the JSON from the dialog. If you miss the download, create a new client.
+6. **Install it**, either with `gmail-agent setup --client-file ~/Downloads/client_secret_*.json`, which also logs in, or by hand:
 
    ```sh
    mkdir -p ~/.config/gmail-agent
    mv ~/Downloads/client_secret_*.json ~/.config/gmail-agent/credentials.json
    chmod 600 ~/.config/gmail-agent/credentials.json
+   gmail-agent login                  # or: gmail-agent login --scope readonly
    ```
 
-7. **Log in.** Run `gmail-agent login` (or pick a level, see below: `gmail-agent login --scope readonly`). A browser opens. Pick your account. Google will say **"Google hasn't verified this app"**. That is expected: it is your own app and nobody else's. Click Continue, keep all boxes ticked, and close the tab. The terminal prints `Logged in as you@example.com with modify access`.
-
-   On a machine without a browser, add `--no-browser` and open the printed URL yourself. The redirect goes to `localhost`, so the browser must run on the same machine.
-
-8. **Avoid weekly re-logins (recommended).** In Testing mode Google expires refresh tokens after **7 days**, and gmail-agent will tell you to log in again. To stop that, go to [Audience](https://console.cloud.google.com/auth/audience) and click Publish app so the publishing status is **In production**. You do not need Google's verification for personal use. You will keep seeing the unverified warning when you log in, and the app is capped at 100 users, which is fine for one person.
+If something is missing later, the error names the fix: a deleted or expired client points back to `gmail-agent setup`, a Gmail API that is not enabled comes with the link to enable it, and an expired login says to run `gmail-agent login` (and to publish the app if it happens every 7 days).
 
 ## Access levels
 
@@ -249,7 +254,7 @@ Every write tool takes `dry_run`. Every tool carries all four MCP hints. Reading
 
 ## For AI agents
 
-Exact steps for an agent setting this up for a user. Steps 3 and 4 need the human.
+Exact steps for an agent setting this up for a user. Step 3 needs the human.
 
 ```sh
 # 1. Install (puts `gmail-agent` on PATH, usually ~/.local/bin)
@@ -259,9 +264,8 @@ uv tool install git+https://github.com/dremok/gmail-agent
 gmail-agent status --json
 ```
 
-3. If `credentials_file` is `false`: the user must do steps 1 to 6 of the [Google Cloud setup](#google-cloud-setup) in a browser. You cannot do this for them. Point them at that section and wait.
-4. If `credentials_file` is `true` but `logged_in` is `false`: ask the user to run `gmail-agent login` in their own terminal (it opens a browser for consent). Ask which level they want if the task needs less than `modify`. Do not run it yourself unless you share their desktop session.
-5. Verify: `gmail-agent status --json` returns `"logged_in": true`, their address, and `"level"`.
+3. If `logged_in` is `false`: ask the user to run `gmail-agent setup` in their own terminal. It is interactive: it opens Google Cloud pages in their browser, waits for them to click through, and logs in. If only the login is missing (`credentials_file` is `true`), `gmail-agent login` is enough. Ask which access level they want if the task needs less than `modify` (`--scope readonly`). You cannot do the console steps for them, and should not run either command yourself unless you share their desktop session.
+4. Verify: `gmail-agent status --json` returns `"logged_in": true`, their address, and `"level"`.
 
 Then use it, always with `--json`:
 

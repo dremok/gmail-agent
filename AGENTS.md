@@ -11,7 +11,7 @@ uv tool install git+https://github.com/dremok/gmail-agent
 gmail-agent status --json        # exit 0 = ready, 1 = not ready ("problem" explains)
 ```
 
-Setup needs a human twice: creating the Google Cloud OAuth client (README, "Google Cloud setup", steps 1 to 6) and running `gmail-agent login` in a browser. Do not try to automate either. If a command fails with exit code 2 or `"code": "setup"` / `"scope"`, show the user the error message; it names the exact command or file that is missing.
+Setup needs a human: they run `gmail-agent setup` in their own terminal, which opens the Google Cloud pages, waits for them to click through, installs the OAuth client and logs in (README, "Google Cloud setup"). Do not try to do the console steps or the login for them. If a command fails with exit code 2 or `"code": "setup"` / `"scope"`, show the user the error message; it names the exact command or file that is missing.
 
 Always pass `--json` (before or after the command; both work).
 
@@ -60,6 +60,7 @@ Layout:
 - `src/gmail_agent/cli.py`: argparse CLI, human output and `--json`.
 - `src/gmail_agent/server.py`: MCP server (`mcp` SDK, `MCPServer`), one tool per operation.
 - `src/gmail_agent/auth.py`, `config.py`: OAuth login, scope levels, token storage, config paths.
+- `src/gmail_agent/setup.py`: `gmail-agent setup`, the guided Google Cloud setup (gcloud only if installed and logged in). Tests fake gcloud, the browser and stdin; never run it against a real config.
 - `src/gmail_agent/mime.py`: MessagePart parsing, body text, HTML to text.
 - `src/gmail_agent/files.py`: filename sanitizing and no-overwrite writes.
 - `src/gmail_agent/guard.py`: allowed folders and the block list for local files.

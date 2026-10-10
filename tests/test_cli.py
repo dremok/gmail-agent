@@ -54,6 +54,7 @@ def test_help_lists_commands(capsys):
         "trash",
         "delete",
         "mcp",
+        "setup",
         "login",
         "status",
     ):

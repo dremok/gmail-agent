@@ -158,6 +158,22 @@ def cmd_login(args) -> Any:
     return result
 
 
+def cmd_setup(args) -> Any:
+    from .setup import Setup
+
+    result = Setup(
+        project=args.project,
+        client_file=args.client_file,
+        use_gcloud=not args.no_gcloud,
+        open_browser=not args.no_browser,
+        level=args.scope,
+    ).run()
+    if not args.json:
+        print(f"Set up: logged in as {result['email']} with {result['level']} access.")
+        print("Check it any time with: gmail-agent status")
+    return result
+
+
 def cmd_logout(args) -> Any:
     removed = auth.logout()
     if not args.json:
@@ -523,6 +539,23 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--draft", action="store_true", help="save as a draft instead of sending")
 
     # Setup
+    sp = add(
+        sub,
+        "setup",
+        cmd_setup,
+        "first-time setup: Google Cloud project, OAuth client, login (guided)",
+    )
+    sp.add_argument("--project", metavar="ID", help="use this Google Cloud project")
+    sp.add_argument(
+        "--client-file", metavar="PATH", help="the Desktop client JSON you already downloaded"
+    )
+    sp.add_argument("--no-gcloud", action="store_true", help="do not use gcloud even if present")
+    sp.add_argument("--no-browser", action="store_true", help="print links instead of opening them")
+    sp.add_argument(
+        "--scope",
+        choices=list(config.LEVELS),
+        help="access level to log in with (default: keep a working login, else modify)",
+    )
     sp = add(sub, "login", cmd_login, "log in with your browser and choose the access level")
     sp.add_argument(
         "--scope",
