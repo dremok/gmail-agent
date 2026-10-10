@@ -28,6 +28,14 @@ def _missing_client_error() -> SetupError:
     )
 
 
+def token_rejected(e: RefreshError) -> SetupError:
+    return SetupError(
+        f"Google rejected the saved token ({e}). Run: gmail-agent login. If this happens "
+        "every 7 days, your OAuth app is in Testing mode; set its publishing status to "
+        f"'In production'. {SETUP_HINT}"
+    )
+
+
 def granted_scopes(creds: Credentials) -> list[str]:
     """What the user actually ticked on the consent screen (they can untick scopes)."""
     granted = creds.granted_scopes or creds.scopes or []
@@ -118,11 +126,7 @@ def load_credentials() -> Credentials:
         try:
             creds.refresh(Request())
         except RefreshError as e:
-            raise SetupError(
-                f"Google rejected the saved token ({e}). Run: gmail-agent login. If this happens "
-                "every 7 days, your OAuth app is in Testing mode; set its publishing status to "
-                f"'In production'. {SETUP_HINT}"
-            ) from e
+            raise token_rejected(e) from e
         except TransportError as e:
             raise SetupError(f"Could not reach Google to refresh the token: {e}") from e
         save_token(creds)

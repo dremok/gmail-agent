@@ -1,7 +1,10 @@
 import json
 import stat
+import time
+from datetime import datetime
 from typing import ClassVar
 
+import httplib2
 import pytest
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
@@ -197,3 +200,33 @@ def test_built_service_reads_and_uploads_through_authorized_connections(mailbox)
     assert gmail.send(["bob@example.com"], "Hi", "Hello")["sent"] is True
     assert mailbox.sent[0]["mail"]["Subject"] == "Hi"
     assert set(seen_auth) == {"Bearer t"}
+
+
+def test_token_refused_mid_session_says_to_log_in(mailbox, monkeypatch):
+    # A long-running MCP server refreshes the access token inside API calls, not at startup.
+    def refuse(self, request):
+        raise RefreshError("invalid_grant: Token has been expired or revoked.")
+
+    monkeypatch.setattr(Credentials, "refresh", refuse)
+    expired = Credentials(
+        token="old",
+        refresh_token="r",
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id="id",
+        client_secret="s",
+        expiry=datetime(2000, 1, 1),
+    )
+    gmail = Gmail(auth.build_service(expired, transport=lambda: FakeGmailHttp(mailbox)))
+    with pytest.raises(SetupError, match=r"Run: gmail-agent login.*In production"):
+        gmail.get_message("m1")
+
+
+def test_network_failure_is_a_readable_error(monkeypatch):
+    class Offline:
+        def request(self, *args, **kwargs):
+            raise httplib2.ServerNotFoundError("Unable to find the server at gmail.googleapis.com")
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)  # skip the client's retry backoff
+    gmail = Gmail(auth.build_service(Credentials(token="t"), transport=Offline))
+    with pytest.raises(GmailAgentError, match="Network error during message m1: Unable to find"):
+        gmail.get_message("m1")

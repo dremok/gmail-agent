@@ -57,13 +57,19 @@ def _http_error(e: Exception, what: str) -> GmailAgentError:
 
 
 def _execute(request, what: str) -> Any:
+    from http.client import HTTPException
+
+    from google.auth.exceptions import RefreshError, TransportError
     from googleapiclient.errors import HttpError
+    from httplib2 import HttpLib2Error
 
     try:
         return request.execute(num_retries=2)
     except HttpError as e:
         raise _http_error(e, what) from e
-    except OSError as e:
+    except RefreshError as e:  # the access token expired and Google refused a new one
+        raise auth.token_rejected(e) from e
+    except (OSError, HTTPException, HttpLib2Error, TransportError) as e:
         raise GmailAgentError(f"Network error during {what}: {e}") from e
 
 
