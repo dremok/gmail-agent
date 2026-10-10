@@ -70,7 +70,7 @@ Constraints:
 
 - Every operation declares the access it needs (`read`, `compose`, `modify`, `delete`) via `Gmail._require` or `_write`; keep `config.ACCESS` the single source of truth.
 - Every write operation supports `dry_run` and returns the ids of what it created or changed.
-- MCP tools declare the same access in `@tool(..., access)`, so the server only exposes what the login allows. They also state all four annotation hints with `hints(...)`, and `untrusted=True` if they return mail content.
+- MCP tools declare a title and the same access in `@tool(title, ..., access)`, so the server only exposes what the login allows. The first sentence of each description says it is about email or Gmail, since clients find deferred tools by keyword search. They also state all four annotation hints with `hints(...)`, and `untrusted=True` if they return mail content.
 - Every local path a tool reads or writes goes through `FileGuard` (`guard.py`): allowed folders for MCP, the block list always. Keep the block list explicit (folders, names, suffixes, and the private-key armor line checked in attachment contents), no pattern guessing.
 - The MCP SDK runs tool calls in worker threads, several at once. httplib2 is not thread-safe, so build Gmail services with `auth.build_service`, which gives each thread its own connection. Never share an `httplib2.Http` between threads.
 - Results go into a model's context: keep them bounded (page sizes, `max_body_chars`, attachment contents left out of dry runs).
@@ -81,7 +81,7 @@ Constraints:
 
 Releasing (maintainer only; the workflow publishes, nobody uploads by hand):
 
-1. Bump the version in `pyproject.toml` (`uv version --bump minor`, uv 0.7 or newer) and both `version` fields in `server.json`; run `uv lock` and `uv sync`. `tests/test_packaging.py` fails until they all match.
+1. Bump the version in `pyproject.toml` (`uv version --bump minor`, uv 0.7 or newer), both `version` fields in `server.json`, and in `.claude-plugin/plugin.json` both `version` and the `gmail-agent==` pin; run `uv lock` and `uv sync`. `tests/test_packaging.py` fails until they all match.
 2. Add the release to `CHANGELOG.md`.
 3. Commit, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin main vX.Y.Z`.
-4. `.github/workflows/release.yml` checks that the tag, `pyproject.toml`, `server.json` and the README's `mcp-name` marker agree, builds and smoke-tests the wheel, publishes to PyPI through Trusted Publishing (GitHub environment `pypi`), then publishes `server.json` to the MCP Registry with GitHub OIDC. Registry versions are immutable, so a mistake means a new version.
+4. `.github/workflows/release.yml` checks that the tag, `pyproject.toml`, `server.json`, the plugin and the README's `mcp-name` marker agree, builds and smoke-tests the wheel, publishes to PyPI through Trusted Publishing (GitHub environment `pypi`), then publishes `server.json` to the MCP Registry with GitHub OIDC. Registry versions are immutable, so a mistake means a new version.

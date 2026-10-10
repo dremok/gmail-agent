@@ -22,6 +22,8 @@ jobs:
           test "$(uv version --short)" = "$v"
           test "$(jq -r .version server.json)" = "$v"
           test "$(jq -r '.packages[0].version' server.json)" = "$v"
+          test "$(jq -r .version .claude-plugin/plugin.json)" = "$v"
+          test "$(jq -r '.mcpServers.gmail.args[0]' .claude-plugin/plugin.json)" = "gmail-agent==$v"
           grep -q 'mcp-name: io.github.dremok/gmail-agent' README.md
       - run: uv build
       - name: Smoke test wheel

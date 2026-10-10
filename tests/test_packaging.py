@@ -36,14 +36,21 @@ def test_requirements_pin_the_locked_versions_inside_the_declared_ranges():
 
 
 def test_one_version_everywhere():
-    """pyproject.toml holds the version; the installed metadata, __version__ and both
-    versions in server.json must match it (the release workflow checks the tag too)."""
+    """pyproject.toml holds the version; the installed metadata, __version__, both versions in
+    server.json and the Claude Code plugin with its pinned server must match it (the release
+    workflow checks the tag too)."""
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     server = json.loads((ROOT / "server.json").read_text())
     [package] = server["packages"]
+    plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
     assert __version__ == project["version"]  # stale? run `uv sync`
     assert server["version"] == package["version"] == project["version"]
     assert package["identifier"] == project["name"]
+    assert plugin["version"] == project["version"]
+    assert plugin["mcpServers"]["gmail"]["args"] == [
+        f"{project['name']}=={project['version']}",
+        "mcp",
+    ]
 
 
 def test_server_json_fits_the_registry():

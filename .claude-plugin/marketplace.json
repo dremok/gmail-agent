@@ -1,0 +1,15 @@
+{
+  "name": "dremok",
+  "owner": {
+    "name": "Max Leander",
+    "url": "https://github.com/dremok"
+  },
+  "description": "Plugins by Max Leander",
+  "plugins": [
+    {
+      "name": "gmail-agent",
+      "source": "./",
+      "description": "Gmail for Claude: search, read, download attachments, read PDF text, send, reply, forward, drafts, labels and trash."
+    }
+  ]
+}

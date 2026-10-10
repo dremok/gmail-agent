@@ -1,0 +1,20 @@
+{
+  "name": "gmail-agent",
+  "displayName": "Gmail (gmail-agent)",
+  "version": "0.3.0",
+  "description": "Gmail for Claude: search and read mail, download attachments (invoices, receipts, PDFs), read PDF text, send, reply, forward, drafts, labels and trash. Runs locally with your own Google OAuth client.",
+  "author": {
+    "name": "Max Leander",
+    "url": "https://github.com/dremok"
+  },
+  "homepage": "https://github.com/dremok/gmail-agent",
+  "repository": "https://github.com/dremok/gmail-agent",
+  "license": "MIT",
+  "keywords": ["gmail", "email", "mail", "inbox", "attachments", "invoices", "pdf", "mcp"],
+  "mcpServers": {
+    "gmail": {
+      "command": "uvx",
+      "args": ["gmail-agent==0.3.0", "mcp"]
+    }
+  }
+}
