@@ -158,6 +158,7 @@ def test_threading_headers_without_message_id():
     assert compose.threading_headers(payload(Subject="x")) == {}
 
 
+ME = {"me@example.com"}
 ORIGINAL = payload(
     From="Bob <bob@example.com>",
     To="me@example.com, Carol <carol@example.com>",
@@ -166,31 +167,42 @@ ORIGINAL = payload(
 
 
 def test_reply_goes_to_sender():
-    assert compose.reply_recipients(ORIGINAL, "me@example.com", False) == (
+    assert compose.reply_recipients(ORIGINAL, ME, False) == (
         ["Bob <bob@example.com>"],
         [],
     )
 
 
 def test_reply_all_adds_others_but_not_me():
-    to, cc = compose.reply_recipients(ORIGINAL, "me@example.com", True)
+    to, cc = compose.reply_recipients(ORIGINAL, ME, True)
     assert to == ["Bob <bob@example.com>", "Carol <carol@example.com>"]
     assert cc == ["Dave <dave@example.com>"]
 
 
 def test_reply_prefers_reply_to():
     p = payload(From="bob@example.com", Reply_To="list@example.com", To="me@example.com")
-    assert compose.reply_recipients(p, "me@example.com", False)[0] == ["list@example.com"]
+    assert compose.reply_recipients(p, ME, False)[0] == ["list@example.com"]
 
 
 def test_reply_to_my_own_message_goes_to_its_recipients():
     p = payload(From="Me <me@example.com>", To="bob@example.com")
-    assert compose.reply_recipients(p, "me@example.com", False)[0] == ["bob@example.com"]
+    assert compose.reply_recipients(p, ME, False)[0] == ["bob@example.com"]
 
 
 def test_reply_all_drops_duplicates():
     p = payload(From="bob@example.com", To="bob@example.com, me@example.com", Cc="bob@example.com")
-    assert compose.reply_recipients(p, "me@example.com", True) == (["bob@example.com"], [])
+    assert compose.reply_recipients(p, ME, True) == (["bob@example.com"], [])
+
+
+def test_send_as_aliases_count_as_me():
+    mine = {"me@example.com", "Alias@Example.org"}
+    p = payload(From="Me <alias@example.org>", To="bob@example.com", Cc="me@example.com")
+    assert compose.reply_recipients(p, mine, True) == (["bob@example.com"], [])
+    p = payload(From="bob@example.com", To="alias@example.org, carol@example.com")
+    assert compose.reply_recipients(p, mine, True) == (
+        ["bob@example.com", "carol@example.com"],
+        [],
+    )
 
 
 def test_quote_text():

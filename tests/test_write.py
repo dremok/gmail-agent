@@ -106,6 +106,26 @@ def test_reply_all_excludes_me(gmail, mailbox):
     assert "user@example.com" not in mail["To"] + mail["Cc"]
 
 
+def test_verified_send_as_aliases_count_as_me(gmail, mailbox, fake_http):
+    mailbox.send_as += [
+        {"sendAsEmail": "Alias@example.org", "verificationStatus": "accepted"},
+        {"sendAsEmail": "pending@example.org", "verificationStatus": "pending"},
+    ]
+    to = "alias@example.org, pending@example.org, Carol <carol@example.com>"
+    mailbox.add("m9", "t9", "Hej", "Bob <bob@example.com>", [], 1_774_000_000_000, to=to)
+    gmail.reply("m9", "ok", reply_all=True, quote=False)
+    sent_to = sent_mail(mailbox)["To"]
+    assert "alias@example.org" not in sent_to.lower()
+    assert "pending@example.org" in sent_to  # an unverified alias proves nothing
+    assert "carol@example.com" in sent_to
+
+    mailbox.add("m10", "t10", "Plan", "Me <alias@example.org>", [], 1_774_000_000_001, to=to)
+    gmail.reply("m10", "follow-up", quote=False)  # from one of mine: goes to its recipients
+    assert "carol@example.com" in sent_mail(mailbox)["To"]
+    lookups = [c for c in fake_http.calls if c[1].endswith("/settings/sendAs")]
+    assert len(lookups) == 1  # read once per client
+
+
 def test_reply_uses_reply_to(gmail, mailbox):
     gmail.reply("m2", "ok", quote=False)
     mail = sent_mail(mailbox)

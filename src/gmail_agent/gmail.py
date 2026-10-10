@@ -119,6 +119,7 @@ class Gmail:
         self._users = service.users()
         self.scopes = scopes
         self._me: str | None = None
+        self._mine: set[str] | None = None
 
     @classmethod
     def connect(cls) -> Gmail:
@@ -202,6 +203,18 @@ class Gmail:
         if self._me is None:
             self.profile()
         return self._me or ""
+
+    def my_addresses(self) -> set[str]:
+        """Every address that is the user, lowercased: the primary one and each verified send-as
+        alias. Read once per client (a CLI command, or an MCP server's lifetime)."""
+        if self._mine is None:
+            resp = self._call("read", "listing send-as addresses", "settings.sendAs.list")
+            self._mine = {
+                a["sendAsEmail"].lower()
+                for a in resp.get("sendAs", [])
+                if a.get("isPrimary") or a.get("verificationStatus") == "accepted"
+            }
+        return self._mine
 
     def _raw_message(self, message_id: str) -> dict:
         return self._call(
@@ -538,7 +551,7 @@ class Gmail:
         below the new text unless `quote` is False."""
         orig = self._raw_message(message_id)
         payload = orig.get("payload", {})
-        to, auto_cc = compose.reply_recipients(payload, self.my_address(), reply_all)
+        to, auto_cc = compose.reply_recipients(payload, self.my_addresses(), reply_all)
         if not to and not auto_cc and not cc and not bcc:
             raise GmailAgentError(f"Message {message_id} has no one to reply to.")
         new_text = text if text is not None else (mime.html_to_text(html) if html else "")

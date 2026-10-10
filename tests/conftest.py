@@ -96,6 +96,7 @@ class Mailbox:
             {"id": "Label_1", "name": "Receipts", "type": "user"},
         ]
         self.drafts: dict[str, dict] = {}
+        self.send_as: list[dict] = [{"sendAsEmail": ME, "isPrimary": True, "isDefault": True}]
         self.sent: list[dict] = []
         self.writes: list[tuple[str, str, dict | None]] = []
         self._counter = 100
@@ -231,6 +232,12 @@ class FakeGmailHttp:
     def _profile(self, method, rest, params, data):
         box = self.mailbox
         return response(200, {"emailAddress": ME, "messagesTotal": len(box.messages)})
+
+    # /settings/sendAs
+    def _settings(self, method, rest, params, data):
+        if rest == ["sendAs"] and method == "GET":
+            return response(200, {"sendAs": self.mailbox.send_as})
+        return not_found("Not Found")
 
     # /labels
     def _labels(self, method, rest, params, data):

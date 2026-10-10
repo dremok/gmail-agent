@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import html as html_lib
 import mimetypes
+from collections.abc import Collection
 from dataclasses import dataclass
 from email.errors import InvalidHeaderDefect
 from email.message import EmailMessage
@@ -141,18 +142,21 @@ def _addresses(*values: str) -> list[tuple[str, str]]:
     return [(name, addr) for name, addr in getaddresses(list(values)) if addr]
 
 
-def reply_recipients(payload: dict, me: str, reply_all: bool) -> tuple[list[str], list[str]]:
+def reply_recipients(
+    payload: dict, mine: Collection[str], reply_all: bool
+) -> tuple[list[str], list[str]]:
     """(to, cc) for a reply, the way mail clients do it.
 
-    Reply goes to Reply-To, else From. If the original was sent by me, it goes to the
-    original recipients instead. Reply-all adds the other To and Cc addresses. My own
-    address and duplicates are dropped.
+    `mine` are the user's own addresses (primary and send-as aliases). Reply goes to
+    Reply-To, else From. If the original was sent from one of mine, it goes to the original
+    recipients instead. Reply-all adds the other To and Cc addresses. My own addresses and
+    duplicates are dropped.
     """
-    me = me.lower()
     sender = mime.header(payload, "reply-to") or mime.header(payload, "from")
     orig_to = mime.header(payload, "to")
     orig_cc = mime.header(payload, "cc")
-    from_me = any(addr.lower() == me for _, addr in _addresses(mime.header(payload, "from")))
+    mine = {a.lower() for a in mine}
+    from_me = any(addr.lower() in mine for _, addr in _addresses(mime.header(payload, "from")))
 
     to = _addresses(orig_to) if from_me else _addresses(sender)
     cc: list[tuple[str, str]] = []
@@ -161,7 +165,7 @@ def reply_recipients(payload: dict, me: str, reply_all: bool) -> tuple[list[str]
             to += _addresses(orig_to)
         cc = _addresses(orig_cc)
 
-    seen = {me}
+    seen = set(mine)
     out: list[list[str]] = [[], []]
     for i, group in enumerate((to, cc)):
         for name, addr in group:
