@@ -7,7 +7,7 @@ Notes for AI agents that use this tool or work on this repo.
 Install and check:
 
 ```sh
-uv tool install git+https://github.com/dremok/gmail-agent
+uv tool install gmail-agent      # or run it without installing: uvx gmail-agent ...
 gmail-agent status --json        # exit 0 = ready, 1 = not ready ("problem" explains)
 ```
 
@@ -78,3 +78,10 @@ Constraints:
 - Never commit `credentials.json`, `token.json` or real email addresses. Use `user@example.com` style examples.
 - Dependencies: compatible ranges in `pyproject.toml` (`>=` the tested version, `<` the next major, or the next minor for 0.x), exact pins in `requirements.txt` that match `uv.lock`. Run `uv lock` after changing them; `tests/test_packaging.py` checks that the three agree.
 - Tests must not hit the network. Extend the fake backend in `tests/conftest.py` instead.
+
+Releasing (maintainer only; the workflow publishes, nobody uploads by hand):
+
+1. Bump the version in `pyproject.toml` (`uv version --bump minor`, uv 0.7 or newer) and both `version` fields in `server.json`; run `uv lock` and `uv sync`. `tests/test_packaging.py` fails until they all match.
+2. Add the release to `CHANGELOG.md`.
+3. Commit, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin main vX.Y.Z`.
+4. `.github/workflows/release.yml` checks that the tag, `pyproject.toml`, `server.json` and the README's `mcp-name` marker agree, builds and smoke-tests the wheel, publishes to PyPI through Trusted Publishing (GitHub environment `pypi`), then publishes `server.json` to the MCP Registry with GitHub OIDC. Registry versions are immutable, so a mistake means a new version.
