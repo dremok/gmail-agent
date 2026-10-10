@@ -25,6 +25,10 @@ jobs:
           test "$(jq -r .version .claude-plugin/plugin.json)" = "$v"
           test "$(jq -r '.mcpServers.gmail.args[0]' .claude-plugin/plugin.json)" = "gmail-agent==$v"
           grep -q 'mcp-name: io.github.dremok/gmail-agent' README.md
+      - name: CHANGELOG has notes for this version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 == "## " v {on=1; next} on && /^## / {exit} on' CHANGELOG.md | grep -q '[^[:space:]]'
       - run: uv build
       - name: Smoke test wheel
         run: uv run --isolated --no-project --with dist/*.whl gmail-agent --help
@@ -73,3 +77,25 @@ jobs:
       - run: ./mcp-publisher validate
       - run: ./mcp-publisher login github-oidc
       - run: ./mcp-publisher publish
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: GitHub release with this version's CHANGELOG section as notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 == "## " v {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
