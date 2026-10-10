@@ -385,10 +385,12 @@ version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "google-api-python-client" },
-    { name = "google-auth" },
+    { name = "google-auth", extra = ["requests"] },
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
+    { name = "httplib2" },
     { name = "mcp" },
+    { name = "pydantic" },
     { name = "pypdf" },
 ]
 
@@ -401,10 +403,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "google-api-python-client", specifier = "==2.201.0" },
-    { name = "google-auth", specifier = "==2.60.0" },
+    { name = "google-auth", extras = ["requests"], specifier = "==2.60.0" },
     { name = "google-auth-httplib2", specifier = "==0.4.4" },
     { name = "google-auth-oauthlib", specifier = "==1.5.0" },
+    { name = "httplib2", specifier = "==0.32.0" },
     { name = "mcp", specifier = "==2.3.0" },
+    { name = "pydantic", specifier = "==2.13.5" },
     { name = "pypdf", specifier = "==6.19.0" },
 ]
 
@@ -458,6 +462,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6e/a0/d9a866dbcf9de983d717a969744e50492d1c9c56b10207a9f23b3fab85d7/google_auth-2.60.0.tar.gz", hash = "sha256:34aa0283ef72c99cd410e35db4417211fa3e6aaa5399183227bbe3b82bd15192", size = 387015 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/f5/7e1770bb548086797ad936ffe7be3d0438f7066ff39982a7763bbb54ccb4/google_auth-2.60.0-py3-none-any.whl", hash = "sha256:e78414cd2e22cc02884768707def024ca32da17695f2c0e6194cdbe1316c4cd4", size = 264569 },
+]
+
+[package.optional-dependencies]
+requests = [
+    { name = "requests" },
 ]
 
 [[package]]

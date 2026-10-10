@@ -1,7 +1,9 @@
 # Direct runtime dependencies, pinned. pyproject.toml is the source of truth; uv.lock pins the rest.
 google-api-python-client==2.201.0
-google-auth==2.60.0
+google-auth[requests]==2.60.0
 google-auth-httplib2==0.4.4
 google-auth-oauthlib==1.5.0
+httplib2==0.32.0
 mcp==2.3.0
+pydantic==2.13.5
 pypdf==6.19.0
