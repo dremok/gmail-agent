@@ -14,6 +14,7 @@ from .errors import GmailAgentError, NotFoundError, ScopeError, SetupError
 from .files import write_new_file
 
 DEFAULT_BODY_CHARS = 20_000
+THREAD_BODY_CHARS = 5_000  # per message; replies tend to quote the whole thread again
 DEFAULT_TEXT_CHARS = 50_000
 TEXT_SUFFIXES = {".txt", ".csv", ".tsv", ".md", ".json", ".xml", ".log", ".ics", ".vcf"}
 BATCH_LIMIT = 1000  # Gmail's cap for batchModify and batchDelete
@@ -228,7 +229,7 @@ class Gmail:
         return self._detail(self._raw_message(message_id), max_body_chars)
 
     def get_thread(
-        self, thread_id: str, max_body_chars: int | None = DEFAULT_BODY_CHARS
+        self, thread_id: str, max_body_chars: int | None = THREAD_BODY_CHARS
     ) -> dict[str, Any]:
         thread = self._call(
             "read", f"thread {thread_id}", "threads.get", id=thread_id, format="full"

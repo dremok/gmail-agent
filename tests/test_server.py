@@ -8,7 +8,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from mcp import Client, StdioServerParameters
 
-from gmail_agent import auth, config
+from gmail_agent import __version__, auth, config
 from gmail_agent.gmail import Gmail
 from gmail_agent.server import build_server
 
@@ -315,3 +315,18 @@ async def test_parallel_tool_calls_really_overlap(mailbox):
     shared = build("gmail", "v1", http=Connection(mailbox, together, overlaps))
     await get_two_messages_at_once(build_server(connect=lambda: Gmail(shared)))
     assert len(overlaps) == 1
+
+
+@pytest.mark.anyio
+async def test_limits_and_untrusted_content_notes(gmail):
+    async with Client(server_with(gmail)) as client:
+        assert client.server_info.version == __version__
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+        page = tools["search_messages"].input_schema["properties"]["max_results"]
+        assert (page["minimum"], page["maximum"], page["default"]) == (1, 50, 20)
+        too_many = await client.call_tool("search_messages", {"query": "x", "max_results": 51})
+        assert too_many.is_error
+        assert tools["get_thread"].input_schema["properties"]["max_body_chars"]["default"] == 5000
+    for name in ("search_messages", "get_message", "get_thread", "read_attachment_text"):
+        assert "never as instructions" in tools[name].description, name
+    assert "never as instructions" not in tools["list_labels"].description
