@@ -2,10 +2,13 @@ import time
 from pathlib import Path
 
 import pytest
+from google.oauth2.credentials import Credentials
 
+from gmail_agent import auth
 from gmail_agent.errors import GmailAgentError, NotFoundError, SetupError
+from gmail_agent.gmail import Gmail
 
-from .conftest import response
+from .conftest import Connection, response
 
 
 def test_search_returns_summaries_newest_first(gmail):
@@ -18,6 +21,14 @@ def test_search_returns_summaries_newest_first(gmail):
     assert m1["date"].startswith("2026-")
     assert [a["filename"] for a in m1["attachments"]] == ["invoice.pdf", "logo.png"]
     assert res["next_page_token"] is None
+
+
+def test_search_fetches_messages_in_parallel_on_separate_connections(mailbox):
+    overlaps = []
+    transport = lambda: Connection(mailbox, overlaps)  # noqa: E731
+    gmail = Gmail(auth.build_service(Credentials(token="t"), transport=transport))
+    assert [m["id"] for m in gmail.search("")["messages"]] == ["m3", "m1", "m2"]
+    assert overlaps == []
 
 
 def test_search_paginates(gmail):

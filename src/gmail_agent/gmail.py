@@ -5,6 +5,8 @@ from __future__ import annotations
 import fnmatch
 import io
 import json
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,9 @@ THREAD_BODY_CHARS = 5_000  # per message; replies tend to quote the whole thread
 DEFAULT_TEXT_CHARS = 50_000
 TEXT_SUFFIXES = {".txt", ".csv", ".tsv", ".md", ".json", ".xml", ".log", ".ics", ".vcf"}
 BATCH_LIMIT = 1000  # Gmail's cap for batchModify and batchDelete
+# Messages fetched at once for a page of results: about 4x faster than one by one, and well
+# inside Gmail's per-user quota (250 units/s; a message get costs 5).
+FETCH_THREADS = 4
 
 # Shortcuts for common label changes: action -> (labels to add, labels to remove).
 MARK_ACTIONS: dict[str, tuple[list[str], list[str]]] = {
@@ -104,6 +109,8 @@ class Gmail:
 
     `scopes` are the scopes the login granted; each call checks them first so a missing scope
     gives a clear message instead of a 403. None skips the check (tests, custom services).
+    Pages of results are fetched from several threads, so `service` must be safe to use from
+    more than one thread; `auth.build_service` makes one that is.
     """
 
     def __init__(self, service: Any, scopes: list[str] | None = None) -> None:
@@ -127,6 +134,14 @@ class Gmail:
             f"{what} needs {ACCESS_LABELS[access]}, but this login only granted {have}. "
             f"Run: gmail-agent login --scope {level}"
         )
+
+    @staticmethod
+    def _fetch_all(fetch: Callable[[str], dict], ids: list[str]) -> list[dict]:
+        """fetch(id) for every id, a few at a time, results in the same order."""
+        if len(ids) < 2:
+            return [fetch(i) for i in ids]
+        with ThreadPoolExecutor(min(FETCH_THREADS, len(ids))) as pool:
+            return list(pool.map(fetch, ids))
 
     def _scope_ok(self, access: str) -> bool | None:
         return None if self.scopes is None else config.allows(self.scopes, access)
@@ -240,7 +255,8 @@ class Gmail:
             pageToken=page_token or None,
             includeSpamTrash=include_spam_trash,
         )
-        messages = [self._summary(self._raw_message(m["id"])) for m in resp.get("messages", [])]
+        ids = [m["id"] for m in resp.get("messages", [])]
+        messages = [self._summary(m) for m in self._fetch_all(self._raw_message, ids)]
         return {
             "query": query,
             "messages": messages,
@@ -594,10 +610,11 @@ class Gmail:
             pageToken=page_token or None,
             q=query or None,
         )
-        drafts = []
-        for d in resp.get("drafts", []):
-            full = self._raw_draft(d["id"])
-            drafts.append({"draft_id": full["id"], **self._summary(full["message"])})
+        ids = [d["id"] for d in resp.get("drafts", [])]
+        drafts = [
+            {"draft_id": d["id"], **self._summary(d["message"])}
+            for d in self._fetch_all(self._raw_draft, ids)
+        ]
         return {"drafts": drafts, "next_page_token": resp.get("nextPageToken")}
 
     def _raw_draft(self, draft_id: str) -> dict:

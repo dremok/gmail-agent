@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
+import time
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.policy import default as default_policy
@@ -378,6 +380,36 @@ class FakeGmailHttp:
 
     def close(self):
         return None
+
+
+class Connection(FakeGmailHttp):
+    """One connection, like an httplib2.Http, that notices when two threads use it at once.
+
+    With a `together` barrier, the first requests wait for each other, so they are in flight
+    at the same moment whether or not they share a connection.
+    """
+
+    def __init__(
+        self, mailbox, overlaps: list[str], together: threading.Barrier | None = None
+    ) -> None:
+        super().__init__(mailbox)
+        self.together = together
+        self.overlaps = overlaps
+        self.busy = threading.Lock()
+
+    def request(self, *args, **kwargs):
+        mine = self.busy.acquire(blocking=False)
+        if not mine:
+            self.overlaps.append(threading.current_thread().name)
+        try:
+            if self.together and not self.together.broken:
+                self.together.wait()
+            else:
+                time.sleep(0.01)  # stay busy long enough for a shared connection to show
+            return super().request(*args, **kwargs)
+        finally:
+            if mine:
+                self.busy.release()
 
 
 PDF_BYTES = minimal_pdf("Total due 120 EUR")

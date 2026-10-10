@@ -12,7 +12,7 @@ from gmail_agent import __version__, auth, config
 from gmail_agent.gmail import Gmail
 from gmail_agent.server import build_server
 
-from .conftest import FakeGmailHttp
+from .conftest import Connection
 
 READ_TOOLS = {
     "account_status",
@@ -252,32 +252,6 @@ async def test_stdio_handshake(isolated_config):
         assert "No OAuth client file" in res.content[0].text
 
 
-class Connection(FakeGmailHttp):
-    """One connection, like an httplib2.Http, that notices when two threads use it at once.
-
-    The first `together` requests wait for each other, so they are in flight at the same
-    moment whether or not they share a connection.
-    """
-
-    def __init__(self, mailbox, together: threading.Barrier, overlaps: list[str]) -> None:
-        super().__init__(mailbox)
-        self.together = together
-        self.overlaps = overlaps
-        self.busy = threading.Lock()
-
-    def request(self, *args, **kwargs):
-        mine = self.busy.acquire(blocking=False)
-        if not mine:
-            self.overlaps.append(threading.current_thread().name)
-        try:
-            if not self.together.broken:
-                self.together.wait()
-            return super().request(*args, **kwargs)
-        finally:
-            if mine:
-                self.busy.release()
-
-
 async def get_two_messages_at_once(server) -> dict[str, dict]:
     results: dict[str, dict] = {}
     async with Client(server) as client:
@@ -299,7 +273,7 @@ async def test_parallel_tool_calls_use_separate_connections(mailbox):
     together, overlaps = threading.Barrier(2, timeout=5), []
 
     def connect():
-        transport = lambda: Connection(mailbox, together, overlaps)  # noqa: E731
+        transport = lambda: Connection(mailbox, overlaps, together)  # noqa: E731
         return Gmail(auth.build_service(Credentials(token="t"), transport=transport))
 
     results = await get_two_messages_at_once(build_server(connect=connect))
@@ -312,7 +286,7 @@ async def test_parallel_tool_calls_use_separate_connections(mailbox):
 async def test_parallel_tool_calls_really_overlap(mailbox):
     """The control for the test above: one shared connection is used by two threads at once."""
     together, overlaps = threading.Barrier(2, timeout=5), []
-    shared = build("gmail", "v1", http=Connection(mailbox, together, overlaps))
+    shared = build("gmail", "v1", http=Connection(mailbox, overlaps, together))
     await get_two_messages_at_once(build_server(connect=lambda: Gmail(shared)))
     assert len(overlaps) == 1
 
