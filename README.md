@@ -229,7 +229,7 @@ Without installing first, `uvx` works too: `"command": "uvx", "args": ["--from",
 | `trash`, `untrash` | Move to and from Trash |
 | `delete_permanently` | Only with `--allow-delete` and a `full` login |
 
-Every write tool takes `dry_run`. Reading tools are marked `readOnlyHint`. `trash` and the delete tools are marked `destructiveHint`, so clients that ask before destructive calls will ask.
+Every write tool takes `dry_run`. Every tool carries all four MCP hints. Reading tools are `readOnlyHint`. Sending (`send_message`, `reply_to_message`, `forward_message`, `send_draft`), `update_draft`, `trash` and the delete tools are `destructiveHint`, because they cannot be taken back or they overwrite or remove something, so clients that confirm destructive calls will ask first. Tools that are safe to repeat, such as `mark_messages` and `trash`, are `idempotentHint`; `send_message` and the downloads are not.
 
 ## Security notes
 

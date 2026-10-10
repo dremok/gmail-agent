@@ -63,10 +63,6 @@ async def tool_map(server):
 async def test_default_tools_read_and_write_but_no_permanent_delete(gmail):
     tools = await tool_map(server_with(gmail))
     assert set(tools) == READ_TOOLS | WRITE_TOOLS
-    assert tools["search_messages"].annotations.read_only_hint is True
-    assert tools["download_attachments"].annotations.destructive_hint is False
-    assert tools["trash"].annotations.destructive_hint is True
-    assert tools["send_message"].annotations.read_only_hint is False
     schema = tools["download_attachments"].input_schema
     assert schema["required"] == ["message_id", "out_dir"]
     assert "attachments" in schema["properties"]
@@ -106,11 +102,40 @@ async def test_tools_follow_the_granted_scopes(gmail, level, allow_delete, expec
     assert set(await tool_map(server)) == expected
 
 
+# (read_only, destructive, idempotent) for every tool that is not a plain read.
+WRITE_HINTS = {
+    "download_attachments": (False, False, False),
+    "download_matching_attachments": (False, False, False),
+    "send_message": (False, True, False),
+    "reply_to_message": (False, True, False),
+    "forward_message": (False, True, False),
+    "create_draft": (False, False, False),
+    "update_draft": (False, True, False),
+    "send_draft": (False, True, True),
+    "delete_draft": (False, True, True),
+    "create_label": (False, False, True),
+    "rename_label": (False, False, True),
+    "delete_label": (False, True, True),
+    "modify_labels": (False, False, True),
+    "mark_messages": (False, False, True),
+    "trash": (False, True, True),
+    "untrash": (False, False, True),
+    "delete_permanently": (False, True, True),
+}
+
+
 @pytest.mark.anyio
-async def test_permanent_delete_is_destructive(gmail):
+async def test_every_tool_has_all_four_hints(gmail):
     server = server_with(gmail, scopes=config.LEVELS["full"], allow_delete=True)
     tools = await tool_map(server)
-    assert tools["delete_permanently"].annotations.destructive_hint is True
+    expected = {name: (True, False, True) for name in tools.keys() - WRITE_HINTS.keys()}
+    expected |= WRITE_HINTS
+    assert set(expected) == set(tools)
+    for name, tool in tools.items():
+        a = tool.annotations
+        hints = (a.read_only_hint, a.destructive_hint, a.idempotent_hint)
+        assert hints == expected[name], name
+        assert a.open_world_hint is True, name
 
 
 @pytest.mark.anyio
