@@ -6,7 +6,10 @@ import contextlib
 import json
 import os
 import sys
+import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import Request
@@ -126,7 +129,29 @@ def load_credentials() -> Credentials:
     return creds
 
 
-def build_service(creds: Credentials):
-    from googleapiclient.discovery import build
+def build_service(creds: Credentials, transport: Callable[[], Any] | None = None):
+    """The Gmail API service, safe to use from several threads at once.
 
-    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+    httplib2 is not thread-safe, and the MCP server runs tool calls in worker threads, so
+    sharing one connection crashes the process when calls overlap. Every thread gets its own
+    authorized connection instead (google-api-python-client's documented requestBuilder
+    pattern). `transport` makes the plain httplib2.Http for each thread; tests replace it.
+    """
+    import google_auth_httplib2
+    from googleapiclient.discovery import build
+    from googleapiclient.http import HttpRequest, build_http
+
+    new_transport = transport or build_http
+    local = threading.local()
+
+    def thread_http() -> google_auth_httplib2.AuthorizedHttp:
+        if not hasattr(local, "http"):
+            local.http = google_auth_httplib2.AuthorizedHttp(creds, http=new_transport())
+        return local.http
+
+    def request_builder(_http, *args, **kwargs) -> HttpRequest:
+        return HttpRequest(thread_http(), *args, **kwargs)
+
+    return build(
+        "gmail", "v1", http=thread_http(), requestBuilder=request_builder, cache_discovery=False
+    )

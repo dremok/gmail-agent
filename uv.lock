@@ -386,6 +386,7 @@ source = { editable = "." }
 dependencies = [
     { name = "google-api-python-client" },
     { name = "google-auth" },
+    { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
     { name = "mcp" },
     { name = "pypdf" },
@@ -401,6 +402,7 @@ dev = [
 requires-dist = [
     { name = "google-api-python-client", specifier = "==2.201.0" },
     { name = "google-auth", specifier = "==2.60.0" },
+    { name = "google-auth-httplib2", specifier = "==0.4.4" },
     { name = "google-auth-oauthlib", specifier = "==1.5.0" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "pypdf", specifier = "==6.19.0" },

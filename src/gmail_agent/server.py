@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import threading
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -63,10 +64,13 @@ def build_server(
 
     connect = connect or Gmail.connect
     client: list[Gmail] = []
+    # Tool calls run in worker threads, so the first ones can arrive together.
+    connecting = threading.Lock()
 
     def gmail() -> Gmail:
-        if not client:
-            client.append(connect())
+        with connecting:
+            if not client:
+                client.append(connect())
         return client[0]
 
     mcp = MCPServer("gmail-agent", instructions=INSTRUCTIONS)

@@ -8,6 +8,9 @@ from google.oauth2.credentials import Credentials
 
 from gmail_agent import auth, config
 from gmail_agent.errors import GmailAgentError, SetupError
+from gmail_agent.gmail import Gmail
+
+from .conftest import FakeGmailHttp
 
 
 def write_token(scopes, expired=False):
@@ -178,3 +181,19 @@ def test_logout():
     write_token([config.READONLY_SCOPE])
     assert auth.logout() is True
     assert not config.token_path().exists()
+
+
+def test_built_service_reads_and_uploads_through_authorized_connections(mailbox):
+    seen_auth = []
+
+    class Transport(FakeGmailHttp):
+        def request(self, uri, method="GET", body=None, headers=None, **kwargs):
+            seen_auth.append((headers or {}).get("authorization"))
+            return super().request(uri, method, body, headers, **kwargs)
+
+    service = auth.build_service(Credentials(token="t"), transport=lambda: Transport(mailbox))
+    gmail = Gmail(service)
+    assert gmail.get_message("m1")["subject"] == "Invoice March"
+    assert gmail.send(["bob@example.com"], "Hi", "Hello")["sent"] is True
+    assert mailbox.sent[0]["mail"]["Subject"] == "Hi"
+    assert set(seen_auth) == {"Bearer t"}

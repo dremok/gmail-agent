@@ -1,12 +1,18 @@
 import json
 import sys
+import threading
 
+import anyio
 import pytest
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 from mcp import Client, StdioServerParameters
 
-from gmail_agent import config
+from gmail_agent import auth, config
 from gmail_agent.gmail import Gmail
 from gmail_agent.server import build_server
+
+from .conftest import FakeGmailHttp
 
 READ_TOOLS = {
     "account_status",
@@ -219,3 +225,68 @@ async def test_stdio_handshake(isolated_config):
         res = await client.call_tool("search_messages", {"query": "x"})
         assert res.is_error
         assert "No OAuth client file" in res.content[0].text
+
+
+class Connection(FakeGmailHttp):
+    """One connection, like an httplib2.Http, that notices when two threads use it at once.
+
+    The first `together` requests wait for each other, so they are in flight at the same
+    moment whether or not they share a connection.
+    """
+
+    def __init__(self, mailbox, together: threading.Barrier, overlaps: list[str]) -> None:
+        super().__init__(mailbox)
+        self.together = together
+        self.overlaps = overlaps
+        self.busy = threading.Lock()
+
+    def request(self, *args, **kwargs):
+        mine = self.busy.acquire(blocking=False)
+        if not mine:
+            self.overlaps.append(threading.current_thread().name)
+        try:
+            if not self.together.broken:
+                self.together.wait()
+            return super().request(*args, **kwargs)
+        finally:
+            if mine:
+                self.busy.release()
+
+
+async def get_two_messages_at_once(server) -> dict[str, dict]:
+    results: dict[str, dict] = {}
+    async with Client(server) as client:
+
+        async def get(message_id):
+            res = await client.call_tool("get_message", {"message_id": message_id})
+            assert not res.is_error, res.content[0].text
+            results[message_id] = res.structured_content
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(get, "m1")
+            tg.start_soon(get, "m2")
+    return results
+
+
+@pytest.mark.anyio
+async def test_parallel_tool_calls_use_separate_connections(mailbox):
+    """Regression: parallel calls shared one httplib2 connection and crashed the server."""
+    together, overlaps = threading.Barrier(2, timeout=5), []
+
+    def connect():
+        transport = lambda: Connection(mailbox, together, overlaps)  # noqa: E731
+        return Gmail(auth.build_service(Credentials(token="t"), transport=transport))
+
+    results = await get_two_messages_at_once(build_server(connect=connect))
+    assert overlaps == []
+    assert results["m1"]["subject"] == "Invoice March"
+    assert results["m2"]["subject"] == "Notes from Alice"
+
+
+@pytest.mark.anyio
+async def test_parallel_tool_calls_really_overlap(mailbox):
+    """The control for the test above: one shared connection is used by two threads at once."""
+    together, overlaps = threading.Barrier(2, timeout=5), []
+    shared = build("gmail", "v1", http=Connection(mailbox, together, overlaps))
+    await get_two_messages_at_once(build_server(connect=lambda: Gmail(shared)))
+    assert len(overlaps) == 1
