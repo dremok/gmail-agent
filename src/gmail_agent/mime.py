@@ -159,10 +159,17 @@ class _TextExtractor(HTMLParser):
             if tag == "pre":
                 self.pre += 1
 
+    def handle_startendtag(self, tag, attrs):
+        # <br/>, <hr/>: as in HTML, the slash closes nothing, so there is no end tag to handle.
+        if tag not in self.SKIP:
+            self.handle_starttag(tag, attrs)
+
     def handle_endtag(self, tag):
         if tag in self.SKIP:
             self.skipping = max(0, self.skipping - 1)
-        elif tag not in ("br", "hr"):  # void elements; <br/> also arrives here
+        elif tag == "br":  # browsers read a stray </br> as <br>
+            self.out.append("\n")
+        else:
             self._block(tag)
             if tag == "pre":
                 self.pre = max(0, self.pre - 1)
