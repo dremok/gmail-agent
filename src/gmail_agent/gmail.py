@@ -53,6 +53,8 @@ def _error_reasons(e: Exception) -> set[str]:
         error = json.loads(getattr(e, "content", b"") or b"{}")["error"]
     except (ValueError, KeyError, TypeError):
         return set()
+    if not isinstance(error, dict):
+        return set()
     items = [*error.get("errors", []), *error.get("details", [])]
     return {item["reason"] for item in items if isinstance(item, dict) and "reason" in item}
 
