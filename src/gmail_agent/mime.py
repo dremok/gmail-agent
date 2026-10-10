@@ -107,52 +107,97 @@ def body_text(payload: dict) -> tuple[str, str]:
 
 
 class _TextExtractor(HTMLParser):
+    """Text the way a browser's innerText lays it out: source whitespace collapses, blocks
+    start new lines, paragraphs and headings get a blank line, table cells a space."""
+
+    PARAGRAPH: ClassVar[set[str]] = {"p", "h1", "h2", "h3", "h4", "h5", "h6"}
     BLOCK: ClassVar[set[str]] = {
-        "p",
+        "address",
+        "article",
+        "aside",
+        "blockquote",
+        "center",
+        "dd",
         "div",
-        "br",
-        "tr",
-        "li",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "table",
+        "dl",
+        "dt",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "header",
         "hr",
+        "li",
+        "main",
+        "nav",
+        "ol",
+        "pre",
+        "section",
+        "table",
+        "tr",
+        "ul",
     }
+    CELL: ClassVar[set[str]] = {"td", "th"}
     SKIP: ClassVar[set[str]] = {"script", "style", "head", "title"}
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.out: list[str] = []
+        # Text, or an int: the number of line breaks required at that point.
+        self.out: list[str | int] = []
         self.skipping = 0
+        self.pre = 0
 
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
             self.skipping += 1
-        elif tag in self.BLOCK:
+        elif tag == "br":
             self.out.append("\n")
+        elif tag in self.CELL:
+            self.out.append(" ")
+        else:
+            self._block(tag)
+            if tag == "pre":
+                self.pre += 1
 
     def handle_endtag(self, tag):
         if tag in self.SKIP:
             self.skipping = max(0, self.skipping - 1)
+        elif tag not in ("br", "hr"):  # void elements; <br/> also arrives here
+            self._block(tag)
+            if tag == "pre":
+                self.pre = max(0, self.pre - 1)
+
+    def _block(self, tag):
+        if tag in self.PARAGRAPH:
+            self.out.append(2)
         elif tag in self.BLOCK:
-            self.out.append("\n")
+            self.out.append(1)
 
     def handle_data(self, data):
         if not self.skipping:
-            self.out.append(data)
+            self.out.append(data if self.pre else re.sub(r"\s+", " ", data))
+
+    def text(self) -> str:
+        parts: list[str] = []
+        breaks = 0
+        for item in self.out:
+            if isinstance(item, int):
+                breaks = max(breaks, item)
+            elif item.strip() or item == "\n":
+                if breaks and parts:
+                    parts.append("\n" * breaks)
+                breaks = 0
+                parts.append(item)
+            elif not breaks and parts:
+                parts.append(item)  # a space between inline elements or cells
+        return "".join(parts)
 
 
 def html_to_text(html: str) -> str:
     parser = _TextExtractor()
     parser.feed(html)
     parser.close()
-    lines = [
-        re.sub(r"[ \t\r\f\v\xa0]+", " ", line).strip() for line in "".join(parser.out).split("\n")
-    ]
+    lines = [re.sub(r"[ \t\r\f\v\xa0]+", " ", line).strip() for line in parser.text().split("\n")]
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
