@@ -1,8 +1,11 @@
+import time
 from pathlib import Path
 
 import pytest
 
-from gmail_agent.errors import GmailAgentError, NotFoundError
+from gmail_agent.errors import GmailAgentError, NotFoundError, SetupError
+
+from .conftest import response
 
 
 def test_search_returns_summaries_newest_first(gmail):
@@ -156,3 +159,31 @@ def test_read_text_attachment_by_part_id(gmail):
 def test_read_unsupported_type(gmail):
     with pytest.raises(GmailAgentError, match="download it instead"):
         gmail.read_attachment_text("m2", "archive.zip")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"code": 429, "message": "Too many requests", "status": "RESOURCE_EXHAUSTED"},
+        {
+            "code": 403,
+            "message": "User-rate limit exceeded.",
+            "errors": [{"reason": "userRateLimitExceeded", "domain": "usageLimits"}],
+        },
+    ],
+)
+def test_rate_limits_say_wait_not_log_in(gmail, fake_http, monkeypatch, error):
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)  # the client retries first
+    monkeypatch.setattr(
+        fake_http, "_messages", lambda *a: response(error["code"], {"error": error})
+    )
+    with pytest.raises(GmailAgentError, match="rate limit hit during message m1") as e:
+        gmail.get_message("m1")
+    assert not isinstance(e.value, SetupError)
+
+
+def test_other_403_points_at_login(gmail, fake_http, monkeypatch):
+    error = {"code": 403, "message": "Gmail API has not been used in project 1 or is disabled."}
+    monkeypatch.setattr(fake_http, "_messages", lambda *a: response(403, {"error": error}))
+    with pytest.raises(SetupError, match="gmail-agent login"):
+        gmail.get_message("m1")

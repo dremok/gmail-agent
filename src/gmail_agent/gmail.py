@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import io
+import json
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -37,9 +38,25 @@ ACCESS_LABELS = {
 }
 
 
+# Error reasons Google uses for quota and rate limits, which Gmail reports as 403 or 429.
+RATE_LIMIT_REASONS = {"rateLimitExceeded", "userRateLimitExceeded", "RATE_LIMIT_EXCEEDED"}
+
+
+def _error_reasons(e: Exception) -> set[str]:
+    """The machine-readable reasons in a Google API error body (errors[] and details[])."""
+    try:
+        error = json.loads(getattr(e, "content", b"") or b"{}")["error"]
+    except (ValueError, KeyError, TypeError):
+        return set()
+    items = [*error.get("errors", []), *error.get("details", [])]
+    return {item["reason"] for item in items if isinstance(item, dict) and "reason" in item}
+
+
 def _http_error(e: Exception, what: str) -> GmailAgentError:
     status = getattr(getattr(e, "resp", None), "status", None)
     reason = getattr(e, "reason", None) or str(e)
+    if status == 429 or (status == 403 and _error_reasons(e) & RATE_LIMIT_REASONS):
+        return GmailAgentError(f"Gmail rate limit hit during {what}. Wait and retry.")
     if status == 404:
         return NotFoundError(f"{what} not found (Gmail returned 404). Check the id.")
     if status == 403 and "insufficient" in str(reason).lower():
@@ -52,8 +69,6 @@ def _http_error(e: Exception, what: str) -> GmailAgentError:
             f"Gmail refused {what} ({status}: {reason}). If this is about credentials, "
             "run: gmail-agent login"
         )
-    if status == 429:
-        return GmailAgentError(f"Gmail rate limit hit during {what}. Wait and retry.")
     return GmailAgentError(f"Gmail API error during {what} ({status}): {reason}")
 
 
