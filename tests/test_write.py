@@ -297,6 +297,14 @@ def test_trash_and_untrash(gmail, mailbox):
     assert mailbox.writes[-1][1] == "threads/t1/trash"
 
 
+def test_a_failed_request_in_a_series_says_what_already_happened(gmail, mailbox):
+    with pytest.raises(NotFoundError, match=r"\(nope\) not found") as e:
+        gmail.trash(["m1", "nope", "m2"])
+    assert "The 1 request(s) before it succeeded; the other 1 were not sent." in str(e.value)
+    assert "TRASH" in mailbox.messages["m1"]["labelIds"]
+    assert "TRASH" not in mailbox.messages["m2"]["labelIds"]
+
+
 def test_delete_permanently(gmail, mailbox):
     gmail.delete_permanently(["m1", "m2"])
     assert set(mailbox.messages) == {"m3"}

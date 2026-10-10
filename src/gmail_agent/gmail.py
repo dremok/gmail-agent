@@ -150,12 +150,22 @@ class Gmail:
         if dry_run:
             return {"dry_run": True, "scope_ok": self._scope_ok(access), "requests": plans}
         self._require(access, what)
-        return [
-            _execute(
-                self._resource(p["method"].removeprefix("users."))(userId="me", **p["params"]), what
-            )
-            for p in plans
-        ]
+        results = []
+        for done, p in enumerate(plans):
+            target = f"{what} ({p['params']['id']})" if "id" in p["params"] else what
+            request = self._resource(p["method"].removeprefix("users."))(userId="me", **p["params"])
+            try:
+                results.append(_execute(request, target))
+            except GmailAgentError as e:
+                if not done:
+                    raise
+                # Say what already happened, so the caller neither redoes it nor assumes
+                # that nothing changed.
+                raise type(e)(
+                    f"{e} The {done} request(s) before it succeeded; the other "
+                    f"{len(plans) - done - 1} were not sent."
+                ) from e
+        return results
 
     @staticmethod
     def _plan(method: str, **params) -> dict[str, Any]:
