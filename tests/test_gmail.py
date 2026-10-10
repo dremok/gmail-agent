@@ -195,8 +195,28 @@ def test_rate_limits_say_wait_not_log_in(gmail, fake_http, monkeypatch, error):
     assert not isinstance(e.value, SetupError)
 
 
+def test_disabled_gmail_api_points_at_the_enable_page(gmail, fake_http, monkeypatch):
+    url = "https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=1"
+    error = {
+        "code": 403,
+        "message": "Gmail API has not been used in project 1 before or it is disabled.",
+        "errors": [{"reason": "accessNotConfigured", "domain": "usageLimits"}],
+        "details": [
+            {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "SERVICE_DISABLED",
+                "metadata": {"activationUrl": url, "service": "gmail.googleapis.com"},
+            }
+        ],
+    }
+    monkeypatch.setattr(fake_http, "_messages", lambda *a: response(403, {"error": error}))
+    with pytest.raises(SetupError, match="Gmail API is not enabled") as e:
+        gmail.get_message("m1")
+    assert url in str(e.value)
+
+
 def test_other_403_points_at_login(gmail, fake_http, monkeypatch):
-    error = {"code": 403, "message": "Gmail API has not been used in project 1 or is disabled."}
+    error = {"code": 403, "message": "Request had invalid authentication credentials."}
     monkeypatch.setattr(fake_http, "_messages", lambda *a: response(403, {"error": error}))
     with pytest.raises(SetupError, match="gmail-agent login"):
         gmail.get_message("m1")

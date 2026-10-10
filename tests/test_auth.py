@@ -241,3 +241,40 @@ def test_network_failure_is_a_readable_error(monkeypatch):
     gmail = Gmail(auth.build_service(Credentials(token="t"), transport=Offline))
     with pytest.raises(GmailAgentError, match="Network error during message m1: Unable to find"):
         gmail.get_message("m1")
+
+
+@pytest.mark.parametrize("code", ["invalid_client", "deleted_client"])
+def test_a_deleted_oauth_client_says_to_run_setup(monkeypatch, code):
+    write_token([config.READONLY_SCOPE], expired=True)
+
+    def refuse(self, request):
+        raise RefreshError(f"{code}: The OAuth client was deleted.", {"error": code})
+
+    monkeypatch.setattr(Credentials, "refresh", refuse)
+    with pytest.raises(SetupError, match="run gmail-agent setup"):
+        auth.load_credentials()
+
+
+@pytest.mark.parametrize(
+    ("raised", "message"),
+    [
+        ("timeout", "did not come back within 5 minutes"),
+        ("access_denied", "not a test user"),
+        ("deleted_client", "run gmail-agent setup"),
+        ("invalid_scope", r"Google refused the login \(invalid_scope"),
+    ],
+)
+def test_login_failures_explain_the_fix(fake_flow, monkeypatch, raised, message):
+    from google_auth_oauthlib.flow import WSGITimeoutError
+    from oauthlib.oauth2.rfc6749.errors import CustomOAuth2Error
+
+    def fail(self, **kwargs):
+        assert kwargs["timeout_seconds"] == auth.LOGIN_TIMEOUT
+        if raised == "timeout":
+            raise WSGITimeoutError("Timed out waiting for response from authorization server")
+        raise CustomOAuth2Error(raised, description="from Google")
+
+    monkeypatch.setattr(FakeFlow, "run_local_server", fail)
+    with pytest.raises(SetupError, match=message):
+        auth.login()
+    assert not config.token_path().exists()

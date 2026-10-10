@@ -45,25 +45,36 @@ ACCESS_LABELS = {
 
 # Error reasons Google uses for quota and rate limits, which Gmail reports as 403 or 429.
 RATE_LIMIT_REASONS = {"rateLimitExceeded", "userRateLimitExceeded", "RATE_LIMIT_EXCEEDED"}
+# The Gmail API is not enabled in the OAuth client's Google Cloud project.
+DISABLED_REASONS = {"accessNotConfigured", "SERVICE_DISABLED"}
 
 
-def _error_reasons(e: Exception) -> set[str]:
-    """The machine-readable reasons in a Google API error body (errors[] and details[])."""
+def _error_items(e: Exception) -> list[dict]:
+    """The errors[] and details[] entries of a Google API error body."""
     try:
         error = json.loads(getattr(e, "content", b"") or b"{}")["error"]
     except (ValueError, KeyError, TypeError):
-        return set()
+        return []
     if not isinstance(error, dict):
-        return set()
+        return []
     items = [*error.get("errors", []), *error.get("details", [])]
-    return {item["reason"] for item in items if isinstance(item, dict) and "reason" in item}
+    return [item for item in items if isinstance(item, dict)]
 
 
 def _http_error(e: Exception, what: str) -> GmailAgentError:
     status = getattr(getattr(e, "resp", None), "status", None)
     reason = getattr(e, "reason", None) or str(e)
-    if status == 429 or (status == 403 and _error_reasons(e) & RATE_LIMIT_REASONS):
+    items = _error_items(e)
+    reasons = {item.get("reason") for item in items}
+    if status == 429 or (status == 403 and reasons & RATE_LIMIT_REASONS):
         return GmailAgentError(f"Gmail rate limit hit during {what}. Wait and retry.")
+    if status == 403 and reasons & DISABLED_REASONS:
+        urls = [i.get("metadata", {}).get("activationUrl") for i in items]
+        url = next((u for u in urls if u), auth.console_url("/apis/library/gmail.googleapis.com"))
+        return SetupError(
+            f"The Gmail API is not enabled in the Google Cloud project of your OAuth client. "
+            f"Enable it at {url}, wait a minute, and try again."
+        )
     if status == 404:
         return NotFoundError(f"{what} not found (Gmail returned 404). Check the id.")
     if status == 403 and "insufficient" in str(reason).lower():

@@ -20,21 +20,66 @@ from . import config
 from .errors import GmailAgentError, SetupError
 
 SETUP_HINT = "See https://github.com/dremok/gmail-agent#google-cloud-setup"
+CONSOLE = "https://console.cloud.google.com"
+LOGIN_TIMEOUT = 300  # seconds to wait for the browser to come back from the consent screen
+# Token endpoint errors that mean the OAuth client itself is gone or unknown.
+CLIENT_GONE = {"invalid_client", "deleted_client"}
 
 
 def _missing_client_error() -> SetupError:
     return SetupError(
-        f"No OAuth client file at {config.credentials_path()}. Create a Desktop OAuth client in "
-        f"Google Cloud, download its JSON to that path, then run: gmail-agent login. {SETUP_HINT}"
+        f"No OAuth client file at {config.credentials_path()}. Run: gmail-agent setup. It "
+        "walks you through creating a Desktop OAuth client in Google Cloud, installs it and "
+        f"logs in. {SETUP_HINT}"
+    )
+
+
+def client_project() -> str | None:
+    """The Google Cloud project of the installed OAuth client, for console links."""
+    try:
+        data = json.loads(config.credentials_path().read_text())
+    except (OSError, ValueError):
+        return None
+    installed = data.get("installed") if isinstance(data, dict) else None
+    return installed.get("project_id") if isinstance(installed, dict) else None
+
+
+def console_url(path: str, project: str | None = None) -> str:
+    project = project or client_project()
+    return f"{CONSOLE}{path}" + (f"?project={project}" if project else "")
+
+
+def _client_gone() -> SetupError:
+    return SetupError(
+        f"Google no longer accepts the OAuth client in {config.credentials_path()}: it was "
+        "deleted, or unused for six months. Create a new one: run gmail-agent setup."
     )
 
 
 def token_rejected(e: RefreshError) -> SetupError:
+    data = e.args[1] if len(e.args) > 1 and isinstance(e.args[1], dict) else {}
+    if data.get("error") in CLIENT_GONE:
+        return _client_gone()
     return SetupError(
         f"Google rejected the saved token ({e}). Run: gmail-agent login. If this happens "
-        "every 7 days, your OAuth app is in Testing mode; set its publishing status to "
-        f"'In production'. {SETUP_HINT}"
+        "every 7 days, your OAuth app is in Testing mode; publish it (status 'In production') "
+        f"at {console_url('/auth/audience')}. {SETUP_HINT}"
     )
+
+
+def _login_refused(e: Exception) -> SetupError:
+    """Errors from the consent flow (oauthlib's OAuth2Error has the OAuth error code)."""
+    code = getattr(e, "error", None)
+    if code in CLIENT_GONE:
+        return _client_gone()
+    if code == "access_denied":
+        return SetupError(
+            "Google did not grant access. Either the consent screen was cancelled, or the app "
+            "is in Testing mode and this address is not a test user. Add it under Test users, "
+            f"or publish the app, at {console_url('/auth/audience')}, then log in again."
+        )
+    description = getattr(e, "description", None) or str(e)
+    return SetupError(f"Google refused the login ({code}: {description}). {SETUP_HINT}")
 
 
 def granted_scopes(creds: Credentials) -> list[str]:
@@ -45,7 +90,8 @@ def granted_scopes(creds: Credentials) -> list[str]:
 
 def login(level: str = config.DEFAULT_LEVEL, open_browser: bool = True) -> Credentials:
     """Run the browser consent flow and save the token. Needs credentials.json."""
-    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google_auth_oauthlib.flow import InstalledAppFlow, WSGITimeoutError
+    from oauthlib.oauth2.rfc6749.errors import OAuth2Error
 
     if level not in config.LEVELS:
         raise GmailAgentError(
@@ -63,12 +109,23 @@ def login(level: str = config.DEFAULT_LEVEL, open_browser: bool = True) -> Crede
         ) from e
     # The flow prints the login URL; keep it on stderr so `--json` output stays clean.
     with contextlib.redirect_stdout(sys.stderr):
-        creds = flow.run_local_server(
-            port=0,
-            open_browser=open_browser,
-            authorization_prompt_message="Open this URL in a browser to log in:\n{url}",
-            success_message="gmail-agent is logged in. You can close this tab.",
-        )
+        try:
+            creds = flow.run_local_server(
+                port=0,
+                open_browser=open_browser,
+                authorization_prompt_message="Open this URL in a browser to log in:\n{url}",
+                success_message="gmail-agent is logged in. You can close this tab.",
+                timeout_seconds=LOGIN_TIMEOUT,
+            )
+        except WSGITimeoutError as e:
+            raise SetupError(
+                f"The browser did not come back within {LOGIN_TIMEOUT // 60} minutes. Run "
+                "gmail-agent login again and finish the consent screen. If Google showed "
+                "'Access blocked', add your address as a test user or publish the app at "
+                f"{console_url('/auth/audience')}."
+            ) from e
+        except OAuth2Error as e:
+            raise _login_refused(e) from e
     save_token(creds, scopes=granted_scopes(creds))
     return creds
 
@@ -79,16 +136,21 @@ def save_token(creds: Credentials, scopes: list[str] | None = None) -> Path:
     Each save writes its own temporary file, so two processes refreshing at the same time
     (the CLI and an MCP server, say) cannot leave a half-written token behind.
     """
-    path = config.token_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, 0o700)
     data = json.loads(creds.to_json())
     if scopes is not None:
         data["scopes"] = scopes
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".token-", suffix=".tmp")  # mode 0600
+    return write_private(config.token_path(), json.dumps(data))
+
+
+def write_private(path: Path, text: str) -> Path:
+    """Write `text` readable by the owner only (0600, in a 0700 folder), replacing `path`
+    atomically through a temporary file of its own."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(data))
+            f.write(text)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):

@@ -233,7 +233,7 @@ async def test_setup_error_when_not_logged_in():
     async with Client(build_server()) as client:
         res = await client.call_tool("account_status", {})
     assert res.is_error
-    assert "gmail-agent login" in res.content[0].text
+    assert "gmail-agent setup" in res.content[0].text
 
 
 @pytest.mark.anyio
