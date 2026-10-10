@@ -6,6 +6,7 @@ import contextlib
 import json
 import os
 import sys
+import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -73,19 +74,26 @@ def login(level: str = config.DEFAULT_LEVEL, open_browser: bool = True) -> Crede
 
 
 def save_token(creds: Credentials, scopes: list[str] | None = None) -> Path:
-    """Write the token with owner-only permissions (0600), replacing any old one atomically."""
+    """Write the token with owner-only permissions (0600), replacing any old one atomically.
+
+    Each save writes its own temporary file, so two processes refreshing at the same time
+    (the CLI and an MCP server, say) cannot leave a half-written token behind.
+    """
     path = config.token_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(path.parent, 0o700)
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        data = json.loads(creds.to_json())
-        if scopes is not None:
-            data["scopes"] = scopes
-        f.write(json.dumps(data))
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    data = json.loads(creds.to_json())
+    if scopes is not None:
+        data["scopes"] = scopes
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".token-", suffix=".tmp")  # mode 0600
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(data))
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
     return path
 
 

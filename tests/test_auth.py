@@ -1,6 +1,7 @@
 import json
 import stat
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import ClassVar
 
@@ -177,6 +178,16 @@ def test_saved_token_is_private():
     path = auth.save_token(creds)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+
+def test_simultaneous_saves_leave_a_whole_token():
+    def save(i):
+        auth.save_token(Credentials(token=f"t{i}", refresh_token="r", scopes=[config.MODIFY_SCOPE]))
+
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(save, range(40)))  # re-raises any error from a save
+    assert json.loads(config.token_path().read_text())["token"].startswith("t")
+    assert [p.name for p in config.config_dir().iterdir()] == ["token.json"]
 
 
 def test_logout():
