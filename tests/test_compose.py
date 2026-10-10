@@ -64,10 +64,53 @@ def test_attachments_make_multipart_mixed():
 
 
 def test_non_ascii_survives():
-    msg = roundtrip(compose.build(["Åsa <asa@example.com>"], "Räkning", "Hej på dig"))
-    assert msg["Subject"] == "Räkning"
-    assert "Åsa" in msg["To"]
-    assert msg.get_content().strip() == "Hej på dig"
+    long_name = "Årsredovisning " + "ä" * 80 + ".pdf"
+    atts = [Attachment("Fäktura maj.pdf", b"%PDF", "application/pdf"), Attachment(long_name, b"x")]
+    built = compose.build(
+        ["Åsa Öberg <asa@example.com>"], "Räkning för maj", "Hej på dig", attachments=atts
+    )
+    raw = built.as_string()
+    assert raw.isascii()  # RFC 2047 headers, RFC 2231 filenames, encoded body
+    msg = roundtrip(built)
+    assert msg["Subject"] == "Räkning för maj"
+    assert msg["To"] == "Åsa Öberg <asa@example.com>"
+    assert msg.get_body(("plain",)).get_content().strip() == "Hej på dig"
+    assert [a.get_filename() for a in msg.iter_attachments()] == ["Fäktura maj.pdf", long_name]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("subject", "Hi\r\nBcc: eve@example.com"),
+        ("subject", "Hi\nthere"),
+        ("to", ["bob@example.com\r\nBcc: eve@example.com"]),
+        ("cc", ["carol@example.com\nX-Evil: 1"]),
+    ],
+)
+def test_line_breaks_in_headers_are_refused(field, value):
+    kwargs = {"to": ["bob@example.com"], "subject": "Hi", field: value}
+    with pytest.raises(GmailAgentError, match="linefeed or carriage return"):
+        compose.build(text="body", **kwargs)
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["not an address", "bob", "a@", "@example.com", "a@example.com;b@example.com", '"Bob <b@x.com'],
+)
+def test_invalid_addresses_are_refused(address):
+    with pytest.raises(GmailAgentError, match="not a valid list of email addresses"):
+        compose.build([address], "Hi", "body")
+
+
+def test_valid_address_forms():
+    to = ['Bob <bob@example.com>, "Last, First" <first@example.com>', "carol@example.com"]
+    msg = compose.build(to, "Hi", "body", bcc=["undisclosed-recipients:;", "dave@example.com"])
+    assert [a.addr_spec for a in msg["To"].addresses] == [
+        "bob@example.com",
+        "first@example.com",
+        "carol@example.com",
+    ]
+    assert compose.recipient_count(msg) == 4
 
 
 def test_load_attachments(tmp_path):

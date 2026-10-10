@@ -5,6 +5,7 @@ from __future__ import annotations
 import html as html_lib
 import mimetypes
 from dataclasses import dataclass
+from email.errors import InvalidHeaderDefect
 from email.message import EmailMessage
 from email.utils import formataddr, getaddresses
 from pathlib import Path
@@ -52,11 +53,11 @@ def build(
     for name, values in (("To", to), ("Cc", cc), ("Bcc", bcc)):
         values = [v for v in values or [] if v.strip()]
         if values:
-            msg[name] = ", ".join(values)
-    msg["Subject"] = subject or ""
+            _set_header(msg, name, ", ".join(values))
+    _set_header(msg, "Subject", subject or "")
     for name, value in (headers or {}).items():
         if value:
-            msg[name] = value
+            _set_header(msg, name, value)
     msg.set_content(text)
     if html:
         msg.add_alternative(html, subtype="html")
@@ -70,8 +71,34 @@ def build(
     return msg
 
 
+ADDRESS_HEADERS = ("To", "Cc", "Bcc")
+
+
+def _set_header(msg: EmailMessage, name: str, value: str) -> None:
+    """Set a header, refusing line breaks (header injection) and unparseable addresses
+    with a message that says what to fix."""
+    try:
+        msg[name] = value
+    except ValueError as e:  # a CR or LF in the value
+        raise GmailAgentError(f"Invalid {name} {value!r}: {e}.") from e
+    except IndexError as e:  # Python 3.11's address parser crashes on some, such as "a@"
+        raise _bad_addresses(name, value) from e
+    if name in ADDRESS_HEADERS and any(
+        isinstance(d, InvalidHeaderDefect) for d in msg[name].defects
+    ):
+        # Without this, "a@example.com;b@example.com" would quietly lose b.
+        raise _bad_addresses(name, value)
+
+
+def _bad_addresses(name: str, value: str) -> GmailAgentError:
+    return GmailAgentError(
+        f"{name} is not a valid list of email addresses: {value!r}. Write each one as "
+        "name@example.com or Name <name@example.com>, separated by commas."
+    )
+
+
 def recipient_count(msg: EmailMessage) -> int:
-    return len(getaddresses(msg.get_all("To", []) + msg.get_all("Cc", []) + msg.get_all("Bcc", [])))
+    return sum(len(msg[name].addresses) for name in ADDRESS_HEADERS if name in msg)
 
 
 def _prefixed(subject: str, prefix: str, also: tuple[str, ...] = ()) -> str:
