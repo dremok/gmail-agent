@@ -1,4 +1,3 @@
-import importlib.metadata
 import io
 import json
 import shlex
@@ -7,7 +6,7 @@ import sys
 
 import pytest
 
-from gmail_agent import __version__, cli, config
+from gmail_agent import cli, config
 from gmail_agent.gmail import Gmail
 
 
@@ -59,10 +58,6 @@ def test_help_lists_commands(capsys):
         "status",
     ):
         assert command in out
-
-
-def test_version_matches_the_package_metadata():
-    assert __version__ == importlib.metadata.version("gmail-agent")
 
 
 def test_module_entry_point():

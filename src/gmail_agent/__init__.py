@@ -1,3 +1,8 @@
 """Gmail for AI agents: a CLI and an MCP server."""
 
-__version__ = "0.2.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("gmail-agent")  # pyproject.toml is the one place the version lives
+except PackageNotFoundError:  # a source tree that was never installed
+    __version__ = "0+unknown"

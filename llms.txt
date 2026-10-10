@@ -2,7 +2,7 @@
 
 > Gmail for AI agents, as a CLI (`gmail-agent ... --json`) and an MCP server over stdio (`gmail-agent mcp`). Search with Gmail query syntax, read messages and threads as plain text, list and download attachments (never overwrites, sanitized names), extract text from PDF attachments, send, reply, reply-all, forward with attachments, manage drafts and labels, mark read/starred/archived, trash, and permanently delete behind an explicit flag. Every write command has a dry run. Uses the user's own Google Cloud OAuth client; the access level (readonly, compose, modify, full) is chosen at login, default modify. Tokens stay in ~/.config/gmail-agent/.
 
-Install: `uv tool install git+https://github.com/dremok/gmail-agent`
+Install: `uv tool install gmail-agent` (or run without installing: `uvx gmail-agent mcp`)
 Check setup: `gmail-agent status --json` (exit 0 = ready). Setup needs the human: `gmail-agent setup [--scope readonly|compose|modify|full]` in their terminal walks them through the Google Cloud project, consent screen and Desktop OAuth client (saved to `~/.config/gmail-agent/credentials.json`) and logs in; `gmail-agent login` redoes only the login.
 
 CLI commands: `search`, `message`, `thread`, `attachments`, `download`, `fetch`, `read`, `send`, `reply`, `forward`, `draft list|get|create|update|send|delete`, `labels`, `label list|create|rename|delete|add|remove`, `mark-read`, `mark-unread`, `star`, `unstar`, `archive`, `unarchive`, `trash`, `untrash`, `delete --permanent`, `setup`, `login`, `logout`, `status`, `mcp`. Write commands take `--dry-run`; `send`, `reply`, `forward` take `--draft`.

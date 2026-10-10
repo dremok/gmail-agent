@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.dremok/gmail-agent",
+  "title": "gmail-agent",
+  "description": "Gmail for AI agents: search, read, download attachments, send, reply, drafts, labels.",
+  "repository": {
+    "url": "https://github.com/dremok/gmail-agent",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "gmail-agent",
+      "version": "0.2.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "GMAIL_AGENT_CONFIG_DIR",
+          "description": "Config dir with credentials.json and token (default ~/.config/gmail-agent)",
+          "isRequired": false
+        },
+        {
+          "name": "GMAIL_AGENT_ALLOWED_DIRS",
+          "description": "Extra folders, besides ~/Downloads, the tools may save attachments to and attach files from (separated by :)",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
