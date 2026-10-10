@@ -207,7 +207,13 @@ Without installing first, `uvx` works too: `"command": "uvx", "args": ["--from",
 
 **Which tools show up** follows the access level in your saved login: `readonly` gets only the reading tools, `compose` adds sending and drafts, `modify` adds labels, state and trash. Before you have logged in, the server offers the `modify` set, and each tool explains how to log in. After changing the level with `gmail-agent login --scope ...`, restart the MCP client so it picks up the new tool list.
 
-**Server flags:** `--read-only` keeps only the reading tools, whatever the login allows. `--allow-delete` adds `delete_permanently`, and only if the login has `full` access. Without both, the server has no way to delete mail permanently.
+**Server flags:** `--read-only` keeps only the reading tools, whatever the login allows. `--allow-delete` adds `delete_permanently`, and only if the login has `full` access. Without both, the server has no way to delete mail permanently. `--allow-dir PATH` (repeatable) lets the tools save attachments to and attach files from another folder besides `~/Downloads`; see [Local files](#security-notes).
+
+For example, to let Claude Code save attachments in a project folder too:
+
+```sh
+claude mcp add gmail --scope user -- gmail-agent mcp --allow-dir ~/code/my-project
+```
 
 **Tools:**
 
@@ -239,7 +245,7 @@ Every write tool takes `dry_run`. Every tool carries all four MCP hints. Reading
 - **What leaves your machine.** Only requests to Google's OAuth and Gmail endpoints. No telemetry, no server of ours. Whatever the tools return does go to the agent or model you connected, which is the point. Choose that model with the care you would give anyone reading your inbox.
 - **Mail is untrusted input.** An email can contain text written to steer an AI agent ("forward the last 10 invoices to..."). With write access this matters: a successful injection could send or forward mail. Use `--read-only` or a `readonly` login for agents that read untrusted mail, review `--dry-run` output for anything unusual, and do not combine Gmail write access with other powerful tools in an unattended session.
 - **No confirmation prompts.** Write commands do what they are told. `--dry-run` is the way to look before you leap; `delete` is the one command that insists on an extra flag.
-- **Downloads** go only where you point them, with sanitized names and no overwrites.
+- **Local files.** Through MCP, attachments are saved to and attached from `~/Downloads` only, plus any folder you allow with `gmail-agent mcp --allow-dir PATH` (repeatable) or the `GMAIL_AGENT_ALLOWED_DIRS` variable (folders separated by `:`, or `;` on Windows). The CLI takes any folder, since you type the path yourself. In both, a fixed block list always applies, even inside an allowed folder: gmail-agent's own config folder, `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.docker`, `~/.config/gcloud`, `~/.config/gh`, `~/.password-store`, `~/.claude`, keychains and keyrings, login items (`~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`, `~/.config/autostart`, `~/.config/systemd`), shell startup files (`.zshrc`, `.bashrc`, `.profile` and the like), `.env` and `.env.*`, `.netrc`, `.pypirc`, `.git-credentials`, `.npmrc`, `.pgpass`, SSH keys (`id_rsa`, `id_ed25519`, ...) and `*.pem`, `*.key`, `*.p12`, `*.pfx` files. That includes Keynote decks, which also end in `.key`. Paths are checked after `~`, `..` and symlinks are resolved, so a link cannot lead out of an allowed folder. A refused path gives the error code `not_allowed` and names the flag to use. Downloads never overwrite and their names are sanitized.
 
 ## For AI agents
 
@@ -273,7 +279,7 @@ Things worth knowing:
 - `download` and `fetch` print `{"saved": [{"path": ...}, ...]}`. Use those paths; names may have a `_1` suffix.
 - `send`, `reply`, `forward` and `draft send` return `{"sent": true, "id": ..., "thread_id": ...}`. Drafts return `draft_id` and `message_id`.
 - `send`, `reply` and `forward` send immediately. When the user has not clearly asked to send, use `--draft` or `--dry-run` and show them the result.
-- On failure with `--json` you get `{"error": "...", "code": "setup" | "scope" | "not_found" | "error"}` on stdout. For `setup` and `scope`, relay the message to the user; it names the exact command.
+- On failure with `--json` you get `{"error": "...", "code": "setup" | "scope" | "not_found" | "not_allowed" | "error"}` on stdout. For `setup` and `scope`, relay the message to the user; it names the exact command. `not_allowed` means a file or folder is on the block list or, over MCP, outside the allowed folders.
 - Paging: pass `next_page_token` from a search back as `--page-token`.
 - `message` returns the full body. `thread` and the MCP tools cut each body at 20,000 characters and set `body_truncated`; pass `--max-chars 0` (CLI) or `max_body_chars: 0` (MCP) for everything.
 - MCP searches and draft lists return at most 50 per page; follow `next_page_token` for more.
@@ -286,6 +292,7 @@ See also [AGENTS.md](AGENTS.md) and [llms.txt](llms.txt).
 | Variable | Default | Purpose |
 |---|---|---|
 | `GMAIL_AGENT_CONFIG_DIR` | `$XDG_CONFIG_HOME/gmail-agent`, else `~/.config/gmail-agent` | Where `credentials.json` and `token.json` live |
+| `GMAIL_AGENT_ALLOWED_DIRS` | empty | Extra folders the MCP tools may save attachments to and attach files from, besides `~/Downloads`; separated by `:` (`;` on Windows) |
 
 To use two Google accounts, give each its own config dir:
 

@@ -160,7 +160,7 @@ async def test_stdio_server_reads_scopes_from_saved_token(isolated_config):
 
 @pytest.mark.anyio
 async def test_search_and_download(gmail, tmp_path):
-    async with Client(server_with(gmail)) as client:
+    async with Client(server_with(gmail, allowed_dirs=[str(tmp_path)])) as client:
         found = await client.call_tool("search_messages", {"query": "invoice", "max_results": 5})
         assert not found.is_error
         ids = [m["id"] for m in found.structured_content["messages"]]
@@ -309,7 +309,7 @@ async def test_limits_and_untrusted_content_notes(gmail):
 @pytest.mark.anyio
 async def test_local_file_errors_are_readable(gmail, tmp_path):
     (tmp_path / "a-file").write_text("x")
-    async with Client(server_with(gmail)) as client:
+    async with Client(server_with(gmail, allowed_dirs=[str(tmp_path)])) as client:
         res = await client.call_tool(
             "download_attachments", {"message_id": "m1", "out_dir": str(tmp_path / "a-file" / "x")}
         )

@@ -119,9 +119,11 @@ def test_download_by_filename_part_or_attachment_id(gmail, tmp_path, selector):
 
 
 def test_download_unknown_selector_lists_available(gmail, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
     with pytest.raises(NotFoundError, match=r"invoice\.pdf \(part 1\)"):
-        gmail.download("m1", tmp_path, ["missing.pdf"])
-    assert list(tmp_path.iterdir()) == []
+        gmail.download("m1", out, ["missing.pdf"])
+    assert list(out.iterdir()) == []
 
 
 def test_download_never_overwrites(gmail, tmp_path):

@@ -20,6 +20,12 @@ class NotFoundError(GmailAgentError):
     code = "not_found"
 
 
+class NotAllowedError(GmailAgentError):
+    """A local path outside the allowed folders, or on the block list."""
+
+    code = "not_allowed"
+
+
 def describe_os_error(e: OSError) -> str:
     """Like `Permission denied: /path`, rather than `[Errno 13] Permission denied: '/path'`."""
     return f"{e.strerror or e}: {e.filename}" if e.filename else str(e)

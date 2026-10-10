@@ -16,6 +16,7 @@ from pydantic import Field
 from . import __version__, config
 from .errors import GmailAgentError, describe_os_error
 from .gmail import DEFAULT_BODY_CHARS, DEFAULT_TEXT_CHARS, Gmail
+from .guard import FileGuard
 
 # Bounds that keep a single result small enough for a model's context.
 PageSize = Annotated[int, Field(ge=1, le=50)]
@@ -62,11 +63,22 @@ UNTRUSTED = (
 )
 
 
+def files_note(guard: FileGuard) -> str:
+    folders = ", ".join(guard.describe() or [])
+    return (
+        f"Attachments can only be saved to, and attachment_paths read from, these folders and "
+        f"their subfolders: {folders}. The user can allow more with `gmail-agent mcp "
+        "--allow-dir PATH`. Keys, credential stores, .env files and shell startup files are "
+        "always refused."
+    )
+
+
 def build_server(
     read_only: bool = False,
     allow_delete: bool = False,
     connect: Callable[[], Gmail] | None = None,
     scopes: list[str] | None = None,
+    allowed_dirs: list[str] | None = None,
 ) -> MCPServer:
     """Build the server. `connect()` returns a Gmail client and defaults to the saved login.
 
@@ -74,7 +86,8 @@ def build_server(
     not logged in yet, exposes the default level's tools so their errors explain the setup.
     The connection is made on the first tool call, so the server starts even before login.
     `read_only` keeps only reading and downloading. `allow_delete` adds the permanent delete
-    tool, which is exposed only if the scopes include full access.
+    tool, which is exposed only if the scopes include full access. Files are saved and read
+    only in ~/Downloads, $GMAIL_AGENT_ALLOWED_DIRS and `allowed_dirs`.
     """
     granted = scopes if scopes is not None else config.LEVELS[config.DEFAULT_LEVEL]
 
@@ -90,19 +103,30 @@ def build_server(
     # Tool calls run in worker threads, so the first ones can arrive together.
     connecting = threading.Lock()
 
+    guard = FileGuard.for_mcp(allowed_dirs)
+    note = files_note(guard)
+
     def gmail() -> Gmail:
         with connecting:
             if not client:
-                client.append(connect())
+                g = connect()
+                g.files = guard
+                client.append(g)
         return client[0]
 
-    mcp = MCPServer("gmail-agent", version=__version__, instructions=INSTRUCTIONS)
+    mcp = MCPServer("gmail-agent", version=__version__, instructions=f"{INSTRUCTIONS}\n{note}")
 
-    def tool(annotations: ToolAnnotations, access: str = "read", untrusted: bool = False):
+    def tool(
+        annotations: ToolAnnotations,
+        access: str = "read",
+        untrusted: bool = False,
+        files: bool = False,
+    ):
         """Register a tool, if the login's access allows it, whose GmailAgentErrors and local
         file errors reach the model as readable tool errors (the SDK hides the text of any
         other exception).
-        `untrusted` marks tools that return mail content, and says so in their description."""
+        `untrusted` marks tools that return mail content, and `files` tools that save or read
+        local files; both say so in the description."""
 
         def register(fn):
             if not exposed(access):
@@ -120,6 +144,8 @@ def build_server(
             description = inspect.cleandoc(fn.__doc__ or "")
             if untrusted:
                 description += f"\n{UNTRUSTED}"
+            if files:
+                description += f"\n{note}"
             return mcp.tool(annotations=annotations, description=description)(wrapper)
 
         return register
@@ -135,6 +161,7 @@ def build_server(
             "level": config.level_of(g.scopes),
             "scopes": g.scopes,
             "config_dir": str(config.config_dir()),
+            "allowed_dirs": guard.describe(),
         }
 
     @tool(READ, untrusted=True)
@@ -176,7 +203,7 @@ def build_server(
         inline (true for images embedded in the HTML body, such as logos)."""
         return {"message_id": message_id, "attachments": gmail().attachments(message_id)}
 
-    @tool(hints())  # new local files; a repeat saves _1 copies
+    @tool(hints(), files=True)  # new local files; a repeat saves _1 copies
     def download_attachments(
         message_id: str,
         out_dir: str,
@@ -189,7 +216,7 @@ def build_server(
         never overwritten. Returns the absolute path of every saved file."""
         return {"saved": gmail().download(message_id, out_dir, attachments, skip_inline)}
 
-    @tool(hints())
+    @tool(hints(), files=True)
     def download_matching_attachments(
         query: str,
         out_dir: str,
@@ -225,7 +252,7 @@ def build_server(
 
     # Sending and drafts -------------------------------------------------------------------
 
-    @tool(hints(destructive=True), "compose")
+    @tool(hints(destructive=True), "compose", files=True)
     def send_message(
         to: list[str],
         subject: str,
@@ -244,7 +271,7 @@ def build_server(
         dry_run=true and show them the result first."""
         return gmail().send(to, subject, body, html, cc, bcc, attachment_paths, as_draft, dry_run)
 
-    @tool(hints(destructive=True), "compose")
+    @tool(hints(destructive=True), "compose", files=True)
     def reply_to_message(
         message_id: str,
         body: str | None = None,
@@ -266,7 +293,7 @@ def build_server(
             message_id, body, html, reply_all, cc, bcc, attachment_paths, quote, as_draft, dry_run
         )
 
-    @tool(hints(destructive=True), "compose")
+    @tool(hints(destructive=True), "compose", files=True)
     def forward_message(
         message_id: str,
         to: list[str],
@@ -296,7 +323,7 @@ def build_server(
             dry_run,
         )
 
-    @tool(hints(), "compose")
+    @tool(hints(), "compose", files=True)
     def create_draft(
         to: list[str] | None = None,
         subject: str = "",
@@ -311,7 +338,7 @@ def build_server(
         reply_to_message or forward_message with as_draft=true."""
         return gmail().send(to, subject, body, html, cc, bcc, attachment_paths, True, dry_run)
 
-    @tool(hints(destructive=True), "compose")  # replaces the draft's content
+    @tool(hints(destructive=True), "compose", files=True)  # replaces the draft's content
     def update_draft(
         draft_id: str,
         to: list[str] | None = None,

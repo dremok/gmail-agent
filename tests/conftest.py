@@ -434,6 +434,17 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_home(tmp_path, monkeypatch):
+    """A fresh home folder with an empty Downloads, and no allowed-folder settings."""
+    home = tmp_path / "home"
+    (home / "Downloads").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("GMAIL_AGENT_ALLOWED_DIRS", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    return home
+
+
+@pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
     path = tmp_path / "config"
     monkeypatch.setenv("GMAIL_AGENT_CONFIG_DIR", str(path))

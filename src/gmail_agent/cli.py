@@ -11,6 +11,7 @@ from typing import Any
 from . import __version__, auth, config
 from .errors import GmailAgentError, SetupError, describe_os_error
 from .gmail import DEFAULT_BODY_CHARS, DEFAULT_TEXT_CHARS, MARK_ACTIONS, Gmail
+from .guard import ALLOWED_DIRS_ENV
 
 EPILOG = """\
 examples:
@@ -459,7 +460,10 @@ def cmd_mcp(args) -> Any:
     from .server import build_server
 
     server = build_server(
-        read_only=args.read_only, allow_delete=args.allow_delete, scopes=auth.saved_scopes()
+        read_only=args.read_only,
+        allow_delete=args.allow_delete,
+        scopes=auth.saved_scopes(),
+        allowed_dirs=args.allow_dir,
     )
     server.run()
     return None
@@ -694,6 +698,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-delete",
         action="store_true",
         help="also expose delete_permanently (needs `login --scope full`)",
+    )
+    sp.add_argument(
+        "--allow-dir",
+        action="append",
+        metavar="PATH",
+        help="a folder the tools may save attachments to and attach files from, besides "
+        f"~/Downloads; repeatable (also ${ALLOWED_DIRS_ENV})",
     )
     return p
 

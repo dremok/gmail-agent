@@ -6,6 +6,7 @@ import pytest
 from gmail_agent import compose
 from gmail_agent.compose import Attachment
 from gmail_agent.errors import GmailAgentError
+from gmail_agent.guard import FileGuard
 
 from .conftest import hdrs
 
@@ -115,10 +116,10 @@ def test_valid_address_forms():
 
 def test_load_attachments(tmp_path):
     (tmp_path / "a.pdf").write_bytes(b"pdf")
-    [att] = compose.load_attachments([tmp_path / "a.pdf"])
+    [att] = compose.load_attachments([tmp_path / "a.pdf"], FileGuard())
     assert (att.filename, att.data, att.mime_type) == ("a.pdf", b"pdf", "application/pdf")
     with pytest.raises(GmailAgentError, match="Attachment not found"):
-        compose.load_attachments([tmp_path / "missing.txt"])
+        compose.load_attachments([tmp_path / "missing.txt"], FileGuard())
 
 
 @pytest.mark.parametrize(

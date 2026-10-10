@@ -15,6 +15,7 @@ from . import auth, compose, config, mime
 from .compose import Attachment
 from .errors import GmailAgentError, NotFoundError, ScopeError, SetupError
 from .files import write_new_file
+from .guard import FileGuard
 
 DEFAULT_BODY_CHARS = 20_000
 DEFAULT_TEXT_CHARS = 50_000
@@ -118,6 +119,8 @@ class Gmail:
         self._svc = service
         self._users = service.users()
         self.scopes = scopes
+        # Where attachments may be saved and read from; the MCP server narrows this.
+        self.files = FileGuard()
         self._me: str | None = None
         self._mine: set[str] | None = None
 
@@ -375,11 +378,12 @@ class Gmail:
         skip_inline: bool = False,
     ) -> list[dict[str, Any]]:
         """Save a message's attachments (all, or those matching `select`). Never overwrites."""
+        folder = self.files.writable_dir(out_dir)
         payload = self._raw_message(message_id).get("payload", {})
         parts = self._select(payload, message_id, select)
         if skip_inline and not select:
             parts = [p for p in parts if not mime.attachment_info(p)["inline"]]
-        return [self._save(message_id, p, Path(out_dir)) for p in parts]
+        return [self._save(message_id, p, folder) for p in parts]
 
     def download_matching(
         self,
@@ -390,6 +394,7 @@ class Gmail:
         skip_inline: bool = False,
     ) -> dict[str, Any]:
         """Save every attachment of every message matching `query` (up to `max_messages`)."""
+        folder = self.files.writable_dir(out_dir)
         q = query if "has:attachment" in query else f"{query} has:attachment".strip()
         ids: list[str] = []
         token = None
@@ -417,7 +422,7 @@ class Gmail:
                     info["filename"].lower(), filename_glob.lower()
                 ):
                     continue
-                saved.append(self._save(mid, part, Path(out_dir)))
+                saved.append(self._save(mid, part, folder))
         return {
             "query": q,
             "messages_scanned": len(ids[:max_messages]),
@@ -531,7 +536,8 @@ class Gmail:
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Send a new message (or save it as a draft)."""
-        msg = compose.build(to, subject, text, html, cc, bcc, compose.load_attachments(attachments))
+        atts = compose.load_attachments(attachments, self.files)
+        msg = compose.build(to, subject, text, html, cc, bcc, atts)
         return self._deliver(msg, None, as_draft, dry_run)
 
     def reply(
@@ -570,7 +576,7 @@ class Gmail:
             html,
             auto_cc + (cc or []),
             bcc,
-            compose.load_attachments(attachments),
+            compose.load_attachments(attachments, self.files),
             compose.threading_headers(payload),
         )
         return self._deliver(msg, orig.get("threadId"), as_draft, dry_run)
@@ -601,7 +607,7 @@ class Gmail:
             original = orig_html or compose.text_to_html(orig_text)
             new_html = f"{lead}<br><br>{compose.forward_block_html(payload, original)}"
         atts = self._attachments_of(orig, skip_inline=True) if include_attachments else []
-        atts += compose.load_attachments(attachments)
+        atts += compose.load_attachments(attachments, self.files)
         msg = compose.build(
             to,
             compose.forward_subject(mime.header(payload, "subject")),
@@ -667,7 +673,7 @@ class Gmail:
             return new if new is not None else ([v] if (v := mime.header(payload, name)) else None)
 
         atts = self._attachments_of(msg_now) if keep_attachments else []
-        atts += compose.load_attachments(attachments)
+        atts += compose.load_attachments(attachments, self.files)
         headers = {
             name: mime.header(payload, name.lower()) for name in ("In-Reply-To", "References")
         }

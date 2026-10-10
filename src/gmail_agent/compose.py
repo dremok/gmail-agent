@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import mime
 from .errors import GmailAgentError
+from .guard import FileGuard
 
 
 @dataclass
@@ -23,10 +24,11 @@ class Attachment:
     mime_type: str = "application/octet-stream"
 
 
-def load_attachments(paths: list[str | Path] | None) -> list[Attachment]:
+def load_attachments(paths: list[str | Path] | None, guard: FileGuard) -> list[Attachment]:
+    """Read local files to attach, if `guard` allows each one."""
     out = []
     for item in paths or []:
-        path = Path(item).expanduser()
+        path = guard.readable_file(item)
         if not path.is_file():
             raise GmailAgentError(f"Attachment not found: {path}")
         ctype, _ = mimetypes.guess_type(path.name)
