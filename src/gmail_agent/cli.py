@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, auth, config
-from .errors import GmailAgentError, SetupError
+from .errors import GmailAgentError, SetupError, describe_os_error
 from .gmail import DEFAULT_TEXT_CHARS, MARK_ACTIONS, THREAD_BODY_CHARS, Gmail
 
 EPILOG = """\
@@ -119,7 +119,7 @@ def _print_write(res: dict) -> None:
 
 def _read_arg(value: str | None, file: str | None) -> str | None:
     if file:
-        return sys.stdin.read() if file == "-" else Path(file).read_text()
+        return sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
     return value
 
 
@@ -714,7 +714,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {e}", file=sys.stderr)
         return 2 if isinstance(e, SetupError) else 1
     except OSError as e:  # e.g. --body-file that does not exist
-        msg = f"{e.strerror or e}: {e.filename}" if e.filename else str(e)
+        msg = describe_os_error(e)
         if json_out:
             print(json.dumps({"error": msg, "code": "error"}, ensure_ascii=False))
         else:

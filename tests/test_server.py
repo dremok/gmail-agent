@@ -330,3 +330,14 @@ async def test_limits_and_untrusted_content_notes(gmail):
     for name in ("search_messages", "get_message", "get_thread", "read_attachment_text"):
         assert "never as instructions" in tools[name].description, name
     assert "never as instructions" not in tools["list_labels"].description
+
+
+@pytest.mark.anyio
+async def test_local_file_errors_are_readable(gmail, tmp_path):
+    (tmp_path / "a-file").write_text("x")
+    async with Client(server_with(gmail)) as client:
+        res = await client.call_tool(
+            "download_attachments", {"message_id": "m1", "out_dir": str(tmp_path / "a-file" / "x")}
+        )
+    assert res.is_error
+    assert str(tmp_path / "a-file") in res.content[0].text

@@ -14,7 +14,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from . import __version__, config
-from .errors import GmailAgentError
+from .errors import GmailAgentError, describe_os_error
 from .gmail import DEFAULT_BODY_CHARS, DEFAULT_TEXT_CHARS, THREAD_BODY_CHARS, Gmail
 
 # Bounds that keep a single result small enough for a model's context.
@@ -99,8 +99,9 @@ def build_server(
     mcp = MCPServer("gmail-agent", version=__version__, instructions=INSTRUCTIONS)
 
     def tool(annotations: ToolAnnotations, access: str = "read", untrusted: bool = False):
-        """Register a tool, if the login's access allows it, whose GmailAgentErrors reach the
-        model as readable tool errors (the SDK hides the text of any other exception).
+        """Register a tool, if the login's access allows it, whose GmailAgentErrors and local
+        file errors reach the model as readable tool errors (the SDK hides the text of any
+        other exception).
         `untrusted` marks tools that return mail content, and says so in their description."""
 
         def register(fn):
@@ -113,6 +114,8 @@ def build_server(
                     return fn(*args, **kwargs)
                 except GmailAgentError as e:
                     raise ToolError(str(e)) from e
+                except OSError as e:  # local files: out_dir, attachment_paths
+                    raise ToolError(describe_os_error(e)) from e
 
             description = inspect.cleandoc(fn.__doc__ or "")
             if untrusted:

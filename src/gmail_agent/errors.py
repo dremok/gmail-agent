@@ -18,3 +18,8 @@ class ScopeError(SetupError):
 
 class NotFoundError(GmailAgentError):
     code = "not_found"
+
+
+def describe_os_error(e: OSError) -> str:
+    """ "Permission denied: /path" rather than "[Errno 13] Permission denied: '/path'"."""
+    return f"{e.strerror or e}: {e.filename}" if e.filename else str(e)
