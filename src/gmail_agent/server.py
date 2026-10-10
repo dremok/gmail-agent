@@ -15,7 +15,7 @@ from pydantic import Field
 
 from . import __version__, config
 from .errors import GmailAgentError, describe_os_error
-from .gmail import DEFAULT_BODY_CHARS, DEFAULT_TEXT_CHARS, THREAD_BODY_CHARS, Gmail
+from .gmail import DEFAULT_BODY_CHARS, DEFAULT_TEXT_CHARS, Gmail
 
 # Bounds that keep a single result small enough for a model's context.
 PageSize = Annotated[int, Field(ge=1, le=50)]
@@ -158,10 +158,11 @@ def build_server(
         return gmail().get_message(message_id, max_body_chars or None)
 
     @tool(READ, untrusted=True)
-    def get_thread(thread_id: str, max_body_chars: CharLimit = THREAD_BODY_CHARS) -> dict[str, Any]:
-        """Every message in a thread, oldest first, each like get_message. Bodies are cut at
-        max_body_chars (default 5000, since replies often quote the whole thread); use
-        get_message for one message in full."""
+    def get_thread(
+        thread_id: str, max_body_chars: CharLimit = DEFAULT_BODY_CHARS
+    ) -> dict[str, Any]:
+        """Every message in a thread, oldest first, each like get_message, with each body cut
+        at max_body_chars (0 = no limit)."""
         return gmail().get_thread(thread_id, max_body_chars or None)
 
     @tool(READ)

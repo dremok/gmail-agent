@@ -10,7 +10,7 @@ from typing import Any
 
 from . import __version__, auth, config
 from .errors import GmailAgentError, SetupError, describe_os_error
-from .gmail import DEFAULT_TEXT_CHARS, MARK_ACTIONS, THREAD_BODY_CHARS, Gmail
+from .gmail import DEFAULT_BODY_CHARS, DEFAULT_TEXT_CHARS, MARK_ACTIONS, Gmail
 
 EPILOG = """\
 examples:
@@ -547,8 +547,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument(
         "--max-chars",
         type=int,
-        default=THREAD_BODY_CHARS,
-        help=f"truncate each body (default {THREAD_BODY_CHARS}, 0 = no limit)",
+        default=DEFAULT_BODY_CHARS,
+        help=f"truncate each body (default {DEFAULT_BODY_CHARS}, 0 = no limit)",
     )
 
     # Attachments
