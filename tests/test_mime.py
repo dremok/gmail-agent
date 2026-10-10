@@ -26,3 +26,34 @@ from gmail_agent.mime import html_to_text
 )
 def test_html_to_text_lays_out_like_a_browser(html, text):
     assert html_to_text(html) == text
+
+
+@pytest.mark.parametrize(
+    ("html", "text"),
+    [
+        (
+            '<a href="https://example.com/inv/12">Your invoice</a>',
+            "Your invoice (https://example.com/inv/12)",
+        ),
+        ('<a href="https://x.test/a?b=1&amp;c=2">Go</a>', "Go (https://x.test/a?b=1&c=2)"),
+        ('<a href="https://example.com/">https://example.com</a>', "https://example.com"),
+        ('<a href="http://www.example.com">www.example.com</a>', "www.example.com"),
+        ('<a href="mailto:Bob@Example.com">bob@example.com</a>', "bob@example.com"),
+        (
+            '<a href="mailto:bob@example.com?subject=Hi">Mail Bob</a>',
+            "Mail Bob (mailto:bob@example.com?subject=Hi)",
+        ),
+        ('<a href="#top">Back to top</a>', "Back to top"),
+        ("<a>No target</a>", "No target"),
+        ('<a href="https://x.test"><div>Button</div></a>after', "Button (https://x.test)\nafter"),
+        ('<a href="https://x.test/home"><img src="logo.png"></a>', "(https://x.test/home)"),
+        (
+            '<a href="https://a.test">one<a href="https://b.test">two</a>',
+            "one (https://a.test)two (https://b.test)",
+        ),
+        ('<p>See <a href="https://x.test/t">terms</a>.</p>', "See terms (https://x.test/t)."),
+        ('Unclosed <a href="https://x.test/u">link', "Unclosed link (https://x.test/u)"),
+    ],
+)
+def test_links_keep_their_url(html, text):
+    assert html_to_text(html) == text

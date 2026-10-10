@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from email.message import Message
 from html.parser import HTMLParser
 from typing import Any, ClassVar
+from urllib.parse import unquote
 
 
 def b64decode(data: str) -> bytes:
@@ -106,9 +107,25 @@ def body_text(payload: dict) -> tuple[str, str]:
     return "", "none"
 
 
+def _show_url(href: str, text: str) -> bool:
+    """Whether a link's URL goes after its text: not for an in-page #anchor, and not when the
+    text already shows it (ignoring http:// or https:// and a trailing slash), or shows the
+    address of a mailto: link."""
+    if not href or href.startswith("#"):
+        return False
+    if href.lower().startswith("mailto:"):
+        return unquote(href[len("mailto:") :].split("?")[0]).lower() != text.lower()
+
+    def bare(url: str) -> str:
+        return re.sub(r"^https?://", "", url, flags=re.IGNORECASE).rstrip("/").lower()
+
+    return bare(href) != bare(text)
+
+
 class _TextExtractor(HTMLParser):
     """Text the way a browser's innerText lays it out: source whitespace collapses, blocks
-    start new lines, paragraphs and headings get a blank line, table cells a space."""
+    start new lines, paragraphs and headings get a blank line, table cells a space. Links
+    keep their target as "text (url)"."""
 
     PARAGRAPH: ClassVar[set[str]] = {"p", "h1", "h2", "h3", "h4", "h5", "h6"}
     BLOCK: ClassVar[set[str]] = {
@@ -146,6 +163,7 @@ class _TextExtractor(HTMLParser):
         self.out: list[str | int] = []
         self.skipping = 0
         self.pre = 0
+        self.link: tuple[str, int] | None = None  # href and where the open <a> began in out
 
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
@@ -154,6 +172,10 @@ class _TextExtractor(HTMLParser):
             self.out.append("\n")
         elif tag in self.CELL:
             self.out.append(" ")
+        elif tag == "a":
+            self._close_link()  # an <a> inside an open one closes it first, as in browsers
+            if not self.skipping:
+                self.link = (dict(attrs).get("href") or "").strip(), len(self.out)
         else:
             self._block(tag)
             if tag == "pre":
@@ -169,10 +191,27 @@ class _TextExtractor(HTMLParser):
             self.skipping = max(0, self.skipping - 1)
         elif tag == "br":  # browsers read a stray </br> as <br>
             self.out.append("\n")
+        elif tag == "a":
+            self._close_link()
         else:
             self._block(tag)
             if tag == "pre":
                 self.pre = max(0, self.pre - 1)
+
+    def _close_link(self):
+        if self.link is None:
+            return
+        href, start = self.link
+        self.link = None
+        shown = [i for i in range(start, len(self.out)) if isinstance(self.out[i], str)]
+        text = re.sub(r"\s+", " ", "".join(str(self.out[i]) for i in shown)).strip()
+        if _show_url(href, text):
+            # Right after the link's last text, before any line break that follows it.
+            self.out.insert(shown[-1] + 1 if shown else start, f" ({href})")
+
+    def close(self):
+        super().close()
+        self._close_link()
 
     def _block(self, tag):
         if tag in self.PARAGRAPH:
