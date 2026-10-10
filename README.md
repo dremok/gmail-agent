@@ -32,7 +32,7 @@ Downloads never overwrite anything. If `invoice.pdf` exists, the next one become
 - Mark read or unread, star, archive
 - Trash and untrash; permanent delete behind an explicit flag
 
-Every write command takes `--dry-run`, which prints the exact API request and the full MIME message without changing anything. With `--json`, results include the ids of whatever was sent or created.
+Every write command takes `--dry-run`, which prints the exact API request and, for mail, the MIME message without changing anything. With `--json`, results include the ids of whatever was sent or created.
 
 ## Quick start
 
@@ -175,7 +175,7 @@ Dry run, nothing was changed.
 }
 ```
 
-For mail, the dry run also prints the complete MIME message, headers and attachments included.
+For mail, the dry run also prints the MIME message: every header and body part, with each attachment's contents replaced by its size.
 
 **Exit codes:** `0` ok, `1` error, `2` a setup step or scope is missing (the message says which).
 

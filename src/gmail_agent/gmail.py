@@ -439,7 +439,7 @@ class Gmail:
                 "scope_ok": self._scope_ok("compose"),
                 "requests": [plan],
                 **summary,
-                "mime": msg.as_string(),
+                "mime": compose.preview(msg),
             }
         self._require("compose", what.capitalize())
         media = MediaIoBaseUpload(

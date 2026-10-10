@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import html as html_lib
 import mimetypes
 from dataclasses import dataclass
@@ -95,6 +96,17 @@ def _bad_addresses(name: str, value: str) -> GmailAgentError:
         f"{name} is not a valid list of email addresses: {value!r}. Write each one as "
         "name@example.com or Name <name@example.com>, separated by commas."
     )
+
+
+def preview(msg: EmailMessage) -> str:
+    """The message as text for a dry run: every header and body part, with each attachment's
+    encoded content replaced by its size, so a 5 MB PDF does not flood the output."""
+    shown = copy.deepcopy(msg)
+    for part in shown.walk():
+        if part.is_attachment():
+            size = len(part.get_payload(decode=True) or b"")
+            part.set_payload(f"[{size} bytes, not shown in the dry run]\n")
+    return shown.as_string()
 
 
 def recipient_count(msg: EmailMessage) -> int:

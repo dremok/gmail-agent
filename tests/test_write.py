@@ -76,6 +76,8 @@ def test_dry_run_sends_nothing_and_shows_mime(gmail, mailbox, tmp_path):
     assert "To: bob@example.com" in res["mime"]
     assert "Subject: Dry" in res["mime"]
     assert 'filename="a.txt"' in res["mime"]
+    assert "[13 bytes, not shown in the dry run]" in res["mime"]
+    assert res["attachments"] == ["a.txt"]
     assert mailbox.sent == [] and mailbox.writes == []
 
 
