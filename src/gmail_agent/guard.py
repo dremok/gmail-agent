@@ -14,6 +14,7 @@ spelling (case on macOS, /System/Volumes/Data/...) still matches.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from . import config
@@ -70,7 +71,11 @@ BLOCKED_NAMES = frozenset(
         "id_ed25519",
     }
 )
-BLOCKED_SUFFIXES = frozenset({".pem", ".key", ".p12", ".pfx"})  # private keys and keystores
+BLOCKED_SUFFIXES = frozenset({".p12", ".pfx"})  # PKCS#12 key stores
+# The armor line of a PEM or OpenSSH private key: PRIVATE KEY, RSA/EC/DSA/OPENSSH/ENCRYPTED ...
+# Checked in the file's bytes, so a renamed key is caught and a certificate or a Keynote
+# deck (also .key) is not.
+PRIVATE_KEY = re.compile(rb"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")
 
 
 def _resolve(path: str | Path) -> Path:
@@ -171,3 +176,12 @@ class FileGuard:
             )
         self._check(path, "Attachment", path.parent)
         return path
+
+
+def refuse_private_key(path: Path, data: bytes) -> None:
+    """Refuse an attachment whose contents hold a private key, whatever the file is called."""
+    if PRIVATE_KEY.search(data):
+        raise NotAllowedError(
+            f"Attachment {path} contains a private key (a '-----BEGIN ... PRIVATE KEY-----' "
+            "block). gmail-agent never attaches private keys, not even from an allowed folder."
+        )

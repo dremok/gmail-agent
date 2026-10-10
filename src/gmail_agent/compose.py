@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import mime
 from .errors import GmailAgentError
-from .guard import FileGuard
+from .guard import FileGuard, refuse_private_key
 
 
 @dataclass
@@ -31,8 +31,10 @@ def load_attachments(paths: list[str | Path] | None, guard: FileGuard) -> list[A
         path = guard.readable_file(item)
         if not path.is_file():
             raise GmailAgentError(f"Attachment not found: {path}")
+        data = path.read_bytes()
+        refuse_private_key(path, data)
         ctype, _ = mimetypes.guess_type(path.name)
-        out.append(Attachment(path.name, path.read_bytes(), ctype or "application/octet-stream"))
+        out.append(Attachment(path.name, data, ctype or "application/octet-stream"))
     return out
 
 

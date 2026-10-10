@@ -6,7 +6,8 @@ import pytest
 from mcp import Client
 
 from gmail_agent import cli, config
-from gmail_agent.errors import NotAllowedError
+from gmail_agent.compose import load_attachments
+from gmail_agent.errors import GmailAgentError, NotAllowedError
 from gmail_agent.gmail import Gmail
 from gmail_agent.guard import FileGuard
 from gmail_agent.server import build_server
@@ -91,8 +92,6 @@ def test_an_allowed_folder_that_is_a_symlink_still_works(isolated_home, tmp_path
         "~/.config/gcloud/credentials.db",
         "~/project/.env",
         "~/project/.env.local",
-        "~/project/server.pem",
-        "~/project/tls.key",
         "~/project/cert.p12",
         "~/Documents/id_rsa",
         "~/.netrc",
@@ -127,6 +126,54 @@ def test_blocked_folders_are_never_written(home, folder):
         FileGuard().writable_dir(folder)
     with pytest.raises(NotAllowedError, match="never reads or writes"):
         FileGuard([home]).writable_dir(folder)
+
+
+CERT = b"-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIU\n-----END CERTIFICATE-----\n"
+
+
+def key(kind=""):
+    label = f"{kind} PRIVATE KEY" if kind else "PRIVATE KEY"
+    return f"-----BEGIN {label}-----\nMIIEvQIBADANBgkq\n-----END {label}-----\n".encode()
+
+
+@pytest.mark.parametrize(
+    ("name", "data"),
+    [
+        ("Pitch deck.key", b"PK\x03\x04 a Keynote deck is a zip file"),
+        ("server.pem", CERT),
+        ("chain.crt", CERT + CERT),
+        ("notes.txt", b"BEGIN PRIVATE KEY is just words here, without the armor"),
+    ],
+)
+def test_keynote_decks_and_certificates_can_be_attached(home, name, data):
+    (home / "Downloads" / name).write_bytes(data)
+    for guard in (FileGuard(), FileGuard.for_mcp()):
+        [att] = load_attachments([home / "Downloads" / name], guard)
+        assert att.data == data
+
+
+@pytest.mark.parametrize(
+    ("name", "data"),
+    [
+        ("bundle.pem", CERT + key("RSA")),
+        ("notes.txt", b"my backup:\n" + key()),
+        ("deploy", key("OPENSSH")),
+        ("ec.der.txt", key("EC")),
+        ("dsa.key", key("DSA")),
+        ("vault.txt", key("ENCRYPTED")),
+    ],
+)
+def test_private_keys_are_refused_whatever_their_name(home, name, data):
+    (home / "Downloads" / name).write_bytes(data)
+    for guard in (FileGuard(), FileGuard.for_mcp()):
+        with pytest.raises(NotAllowedError, match="contains a private key"):
+            load_attachments([home / "Downloads" / name], guard)
+
+
+def test_a_missing_attachment_is_still_not_found(home):
+    with pytest.raises(GmailAgentError, match="Attachment not found") as e:
+        load_attachments([home / "Downloads" / "missing.pem"], FileGuard.for_mcp())
+    assert not isinstance(e.value, NotAllowedError)
 
 
 def test_gmail_agents_own_config_is_blocked(home, isolated_config):
@@ -183,6 +230,18 @@ async def test_mcp_tools_use_the_allowed_folders(gmail, home, tmp_path):
         )
         assert secret.is_error
         assert "never" in secret.content[0].text
+        (home / "Downloads" / "notes.txt").write_bytes(key("OPENSSH"))
+        renamed = await client.call_tool(
+            "send_message",
+            {
+                "to": ["bob@example.com"],
+                "subject": "x",
+                "attachment_paths": ["~/Downloads/notes.txt"],
+                "dry_run": True,
+            },
+        )
+        assert renamed.is_error
+        assert "contains a private key" in renamed.content[0].text
         tools = {t.name: t for t in (await client.list_tools()).tools}
     folder = str((home / "Downloads").resolve())
     assert folder in tools["download_attachments"].description
@@ -195,9 +254,11 @@ def test_server_instructions_name_the_folders(home):
     assert "--allow-dir" in server.instructions
 
 
-def test_cli_refuses_blocked_attachments(home, gmail, monkeypatch, capsys, mailbox):
+@pytest.mark.parametrize("attach", [".aws/credentials", "Documents/key.txt"])
+def test_cli_refuses_blocked_attachments(home, gmail, monkeypatch, capsys, mailbox, attach):
+    (home / "Documents" / "key.txt").write_bytes(key("RSA"))
     monkeypatch.setattr(Gmail, "connect", classmethod(lambda cls: gmail))
-    argv = ["send", "--to", "a@example.com", "--attach", str(home / ".aws" / "credentials")]
+    argv = ["send", "--to", "a@example.com", "--attach", str(home / attach)]
     assert cli.main([*argv, "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["code"] == "not_allowed"
     assert mailbox.sent == []

@@ -71,7 +71,7 @@ Constraints:
 - Every operation declares the access it needs (`read`, `compose`, `modify`, `delete`) via `Gmail._require` or `_write`; keep `config.ACCESS` the single source of truth.
 - Every write operation supports `dry_run` and returns the ids of what it created or changed.
 - MCP tools declare the same access in `@tool(..., access)`, so the server only exposes what the login allows. They also state all four annotation hints with `hints(...)`, and `untrusted=True` if they return mail content.
-- Every local path a tool reads or writes goes through `FileGuard` (`guard.py`): allowed folders for MCP, the block list always. Keep the block list explicit (folders, names, suffixes), no pattern guessing.
+- Every local path a tool reads or writes goes through `FileGuard` (`guard.py`): allowed folders for MCP, the block list always. Keep the block list explicit (folders, names, suffixes, and the private-key armor line checked in attachment contents), no pattern guessing.
 - The MCP SDK runs tool calls in worker threads, several at once. httplib2 is not thread-safe, so build Gmail services with `auth.build_service`, which gives each thread its own connection. Never share an `httplib2.Http` between threads.
 - Results go into a model's context: keep them bounded (page sizes, `max_body_chars`, attachment contents left out of dry runs).
 - Permanent deletion stays behind `--permanent` (CLI) and `--allow-delete` (MCP), plus the full scope.
