@@ -19,15 +19,17 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Communications :: Email",
 ]
+# Compatible ranges here, for anyone installing the package; exact pins in requirements.txt
+# and uv.lock (tests/test_packaging.py keeps the three in step).
 dependencies = [
-    "google-api-python-client==2.201.0",
-    "google-auth[requests]==2.60.0",
-    "google-auth-httplib2==0.4.4",
-    "google-auth-oauthlib==1.5.0",
-    "httplib2==0.32.0",
-    "mcp==2.3.0",
-    "pydantic==2.13.5",
-    "pypdf==6.19.0",
+    "google-api-python-client>=2.201.0,<3",
+    "google-auth[requests]>=2.60.0,<3",
+    "google-auth-httplib2>=0.4.4,<0.5",
+    "google-auth-oauthlib>=1.5.0,<2",
+    "httplib2>=0.32.0,<0.33",
+    "mcp>=2.3.0,<3",
+    "pydantic>=2.13.5,<3",
+    "pypdf>=6.19.0,<7",
 ]
 
 [project.urls]
@@ -39,6 +41,7 @@ gmail-agent = "gmail_agent.cli:main"
 
 [dependency-groups]
 dev = [
+    "packaging==26.3",
     "pytest==9.1.1",
     "ruff==0.16.10",
 ]

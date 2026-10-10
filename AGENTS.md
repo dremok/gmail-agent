@@ -72,5 +72,5 @@ Constraints:
 - Results go into a model's context: keep them bounded (page sizes, `max_body_chars`, attachment contents left out of dry runs).
 - Permanent deletion stays behind `--permanent` (CLI) and `--allow-delete` (MCP), plus the full scope.
 - Never commit `credentials.json`, `token.json` or real email addresses. Use `user@example.com` style examples.
-- Pin direct dependencies exactly in `pyproject.toml` and `requirements.txt`, and update `uv.lock`.
+- Dependencies: compatible ranges in `pyproject.toml` (`>=` the tested version, `<` the next major, or the next minor for 0.x), exact pins in `requirements.txt` that match `uv.lock`. Run `uv lock` after changing them; `tests/test_packaging.py` checks that the three agree.
 - Tests must not hit the network. Extend the fake backend in `tests/conftest.py` instead.
