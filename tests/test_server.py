@@ -139,6 +139,21 @@ async def test_every_tool_has_all_four_hints(gmail):
 
 
 @pytest.mark.anyio
+async def test_every_tool_can_be_found_by_searching_for_email(gmail):
+    """Clients like Claude Code load MCP tools on demand by keyword search over names and
+    descriptions, so each tool says in its first sentence that it is about email or Gmail."""
+    server = server_with(gmail, scopes=config.LEVELS["full"], allow_delete=True)
+    async with Client(server) as client:
+        assert client.server_info.title == "Gmail (gmail-agent)"
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+    for name, tool in tools.items():
+        first = tool.description.split(". ")[0].lower()
+        assert "email" in first or "gmail" in first, name
+        assert tool.title, name
+    assert "anything about their email" in server.instructions
+
+
+@pytest.mark.anyio
 async def test_read_only_flag_beats_a_full_login(gmail):
     server = server_with(gmail, scopes=config.LEVELS["full"], allow_delete=True, read_only=True)
     assert set(await tool_map(server)) == READ_TOOLS

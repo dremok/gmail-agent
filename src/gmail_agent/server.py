@@ -23,9 +23,13 @@ PageSize = Annotated[int, Field(ge=1, le=50)]
 CharLimit = Annotated[int, Field(ge=0)]
 
 INSTRUCTIONS = """\
-Access to the user's Gmail. Which write tools exist depends on the access level the user
-granted at login (see account_status). Queries use Gmail search syntax (from:, to:, subject:,
-has:attachment, filename:pdf, after:2026/01/31, newer_than:7d, label:, in:anywhere).
+The user's Gmail. Use these tools for anything about their email: finding, reading and
+answering mail, threads, attachments (invoices, receipts, PDFs), drafts, labels and trash.
+Attachments can be saved to disk (download_attachments, or download_matching_attachments for
+every match of a query) and PDF text read without saving (read_attachment_text).
+Which write tools exist depends on the access level the user granted at login (see
+account_status). Queries use Gmail search syntax (from:, to:, subject:, has:attachment,
+filename:pdf, after:2026/01/31, newer_than:7d, label:, in:anywhere).
 Reading: search_messages -> get_message / get_thread / list_attachments -> download_attachments.
 Attachments are picked by filename or part_id (e.g. "1.2"); attachment_id values can change
 between calls. Downloads never overwrite: a taken name gets a _1, _2 suffix, and the returned
@@ -114,9 +118,16 @@ def build_server(
                 client.append(g)
         return client[0]
 
-    mcp = MCPServer("gmail-agent", version=__version__, instructions=f"{INSTRUCTIONS}\n{note}")
+    mcp = MCPServer(
+        "gmail-agent",
+        title="Gmail (gmail-agent)",
+        version=__version__,
+        instructions=f"{INSTRUCTIONS}\n{note}",
+        website_url="https://github.com/dremok/gmail-agent",
+    )
 
     def tool(
+        title: str,
         annotations: ToolAnnotations,
         access: str = "read",
         untrusted: bool = False,
@@ -146,15 +157,15 @@ def build_server(
                 description += f"\n{UNTRUSTED}"
             if files:
                 description += f"\n{note}"
-            return mcp.tool(annotations=annotations, description=description)(wrapper)
+            return mcp.tool(title=title, annotations=annotations, description=description)(wrapper)
 
         return register
 
     # Reading ------------------------------------------------------------------------------
 
-    @tool(READ)
+    @tool("Gmail account status", READ)
     def account_status() -> dict[str, Any]:
-        """The logged-in Gmail address, message counts and granted access level."""
+        """The connected Gmail account: email address, message counts and granted access level."""
         g = gmail()
         return {
             **g.profile(),
@@ -164,59 +175,63 @@ def build_server(
             "allowed_dirs": guard.describe(),
         }
 
-    @tool(READ, untrusted=True)
+    @tool("Search Gmail", READ, untrusted=True)
     def search_messages(
         query: str,
         max_results: PageSize = 20,
         page_token: str | None = None,
         include_spam_trash: bool = False,
     ) -> dict[str, Any]:
-        """Search messages with a Gmail query, newest first, up to 50 per page. Returns id,
-        thread_id, date, from, to, subject, snippet, labels and attachments for each message,
-        plus next_page_token when there are more results (pass it back as page_token)."""
+        """Search the user's email (all of Gmail) with a Gmail query, newest first, up to 50 per
+        page. Returns id, thread_id, date, from, to, subject, snippet, labels and attachments for
+        each message, plus next_page_token when there are more results (pass it back as
+        page_token)."""
         return gmail().search(query, max_results, page_token, include_spam_trash)
 
-    @tool(READ, untrusted=True)
+    @tool("Read an email", READ, untrusted=True)
     def get_message(
         message_id: str, max_body_chars: CharLimit = DEFAULT_BODY_CHARS
     ) -> dict[str, Any]:
-        """One message with headers, plain-text body (HTML is converted) and attachment list.
-        body_truncated is true when the body was cut at max_body_chars (0 = no limit)."""
+        """Read one email (Gmail message) with headers, plain-text body (HTML is converted) and
+        attachment list. body_truncated is true when the body was cut at max_body_chars (0 = no
+        limit)."""
         return gmail().get_message(message_id, max_body_chars or None)
 
-    @tool(READ, untrusted=True)
+    @tool("Read an email thread", READ, untrusted=True)
     def get_thread(
         thread_id: str, max_body_chars: CharLimit = DEFAULT_BODY_CHARS
     ) -> dict[str, Any]:
-        """Every message in a thread, oldest first, each like get_message, with each body cut
-        at max_body_chars (0 = no limit)."""
+        """Read a whole email conversation (Gmail thread): every message, oldest first, each like
+        get_message, with each body cut at max_body_chars (0 = no limit)."""
         return gmail().get_thread(thread_id, max_body_chars or None)
 
-    @tool(READ)
+    @tool("List Gmail labels", READ)
     def list_labels() -> dict[str, Any]:
-        """All labels (system and user) with their ids, for label: queries and label tools."""
+        """All Gmail labels (folders), system and user, with their ids, for label: queries and label
+        tools."""
         return {"labels": gmail().labels()}
 
-    @tool(READ)
+    @tool("List email attachments", READ)
     def list_attachments(message_id: str) -> dict[str, Any]:
-        """Attachments of one message: filename, mime_type, size, part_id, attachment_id, and
+        """List the attachments of one email: filename, mime_type, size, part_id, attachment_id, and
         inline (true for images embedded in the HTML body, such as logos)."""
         return {"message_id": message_id, "attachments": gmail().attachments(message_id)}
 
-    @tool(hints(), files=True)  # new local files; a repeat saves _1 copies
+    # New local files; a repeat saves _1 copies, so not idempotent.
+    @tool("Download email attachments", hints(), files=True)
     def download_attachments(
         message_id: str,
         out_dir: str,
         attachments: list[str] | None = None,
         skip_inline: bool = False,
     ) -> dict[str, Any]:
-        """Save a message's attachments into out_dir (created if missing; ~ is expanded; give an
-        absolute path, since a relative one is resolved against the server's working directory).
-        attachments: filenames or part ids to save; omit to save all. Existing files are
-        never overwritten. Returns the absolute path of every saved file."""
+        """Download (save) an email's attachments into out_dir (created if missing; ~ is expanded;
+        give an absolute path, since a relative one is resolved against the server's working
+        directory). attachments: filenames or part ids to save; omit to save all. Existing files
+        are never overwritten. Returns the absolute path of every saved file."""
         return {"saved": gmail().download(message_id, out_dir, attachments, skip_inline)}
 
-    @tool(hints(), files=True)
+    @tool("Download attachments from matching emails", hints(), files=True)
     def download_matching_attachments(
         query: str,
         out_dir: str,
@@ -224,35 +239,35 @@ def build_server(
         max_messages: Annotated[int, Field(ge=1, le=500)] = 50,
         skip_inline: bool = False,
     ) -> dict[str, Any]:
-        """Save every attachment from messages matching a Gmail query (has:attachment is added
-        if missing) into out_dir, like download_attachments. filename_glob filters names, e.g.
-        "*.pdf". more_messages is true when more than max_messages (1 to 500) matched."""
+        """Download (save) every attachment from emails matching a Gmail query (has:attachment is
+        added if missing) into out_dir, like download_attachments. filename_glob filters names,
+        e.g. "*.pdf". more_messages is true when more than max_messages (1 to 500) matched."""
         return gmail().download_matching(query, out_dir, filename_glob, max_messages, skip_inline)
 
-    @tool(READ, untrusted=True)
+    @tool("Read attachment text (PDF)", READ, untrusted=True)
     def read_attachment_text(
         message_id: str, attachment: str, max_chars: CharLimit = DEFAULT_TEXT_CHARS
     ) -> dict[str, Any]:
-        """Extract the text of a PDF or text attachment (picked by filename or part id) without
+        """Read the text of a PDF or text email attachment (picked by filename or part id) without
         saving it. Scanned PDFs have no text layer and come back empty."""
         return gmail().read_attachment_text(message_id, attachment, max_chars or None)
 
-    @tool(READ)
+    @tool("List Gmail drafts", READ)
     def list_drafts(
         max_results: PageSize = 20, page_token: str | None = None, query: str | None = None
     ) -> dict[str, Any]:
-        """Drafts with draft_id plus the same summary fields as search_messages, up to 50 per
-        page."""
+        """List Gmail drafts (unsent emails): draft_id plus the same summary fields as
+        search_messages, up to 50 per page."""
         return gmail().list_drafts(max_results, page_token, query)
 
-    @tool(READ)
+    @tool("Read a Gmail draft", READ)
     def get_draft(draft_id: str, max_body_chars: CharLimit = DEFAULT_BODY_CHARS) -> dict[str, Any]:
-        """One draft with headers, body and attachments."""
+        """Read one Gmail draft: headers, body and attachments."""
         return gmail().get_draft(draft_id, max_body_chars or None)
 
     # Sending and drafts -------------------------------------------------------------------
 
-    @tool(hints(destructive=True), "compose", files=True)
+    @tool("Send an email", hints(destructive=True), "compose", files=True)
     def send_message(
         to: list[str],
         subject: str,
@@ -264,14 +279,14 @@ def build_server(
         as_draft: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Send a new email. body is plain text; html adds an HTML version (a plain version is
-        derived if body is omitted). attachment_paths are local files. as_draft saves it to
-        Drafts instead. Returns the sent message id and thread_id (or draft_id).
+        """Send a new email from the user's Gmail. body is plain text; html adds an HTML version (a
+        plain version is derived if body is omitted). attachment_paths are local files. as_draft
+        saves it to Drafts instead. Returns the sent message id and thread_id (or draft_id).
         Sending cannot be undone: unless the user clearly asked to send, use as_draft=true or
         dry_run=true and show them the result first."""
         return gmail().send(to, subject, body, html, cc, bcc, attachment_paths, as_draft, dry_run)
 
-    @tool(hints(destructive=True), "compose", files=True)
+    @tool("Reply to an email", hints(destructive=True), "compose", files=True)
     def reply_to_message(
         message_id: str,
         body: str | None = None,
@@ -284,16 +299,16 @@ def build_server(
         as_draft: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Reply in the same thread. Recipients, "Re:" subject and In-Reply-To/References
-        headers are set from the original; reply_all adds its other To and Cc addresses
-        (never the user's own). quote appends the original below the reply.
-        Sending cannot be undone: unless the user clearly asked to send, use as_draft=true or
+        """Reply to an email, in the same Gmail thread. Recipients, "Re:" subject and
+        In-Reply-To/References headers are set from the original; reply_all adds its other To and
+        Cc addresses (never the user's own). quote appends the original below the reply. Sending
+        cannot be undone: unless the user clearly asked to send, use as_draft=true or
         dry_run=true and show them the result first."""
         return gmail().reply(
             message_id, body, html, reply_all, cc, bcc, attachment_paths, quote, as_draft, dry_run
         )
 
-    @tool(hints(destructive=True), "compose", files=True)
+    @tool("Forward an email", hints(destructive=True), "compose", files=True)
     def forward_message(
         message_id: str,
         to: list[str],
@@ -306,7 +321,7 @@ def build_server(
         as_draft: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Forward a message, by default with its attachments. body is a note placed above
+        """Forward an email, by default with its attachments. body is a note placed above
         the forwarded message. attachment_paths adds local files.
         Sending cannot be undone: unless the user clearly asked to send, use as_draft=true or
         dry_run=true and show them the result first."""
@@ -323,7 +338,7 @@ def build_server(
             dry_run,
         )
 
-    @tool(hints(), "compose", files=True)
+    @tool("Create a Gmail draft", hints(), "compose", files=True)
     def create_draft(
         to: list[str] | None = None,
         subject: str = "",
@@ -334,11 +349,13 @@ def build_server(
         attachment_paths: list[str] | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Save a new message in Drafts without sending it. For a draft reply or forward use
+        """Save a new email in Gmail Drafts without sending it. For a draft reply or forward use
         reply_to_message or forward_message with as_draft=true."""
         return gmail().send(to, subject, body, html, cc, bcc, attachment_paths, True, dry_run)
 
-    @tool(hints(destructive=True), "compose", files=True)  # replaces the draft's content
+    @tool(
+        "Update a Gmail draft", hints(destructive=True), "compose", files=True
+    )  # replaces the draft's content
     def update_draft(
         draft_id: str,
         to: list[str] | None = None,
@@ -351,7 +368,7 @@ def build_server(
         keep_attachments: bool = True,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Change a draft. Omitted fields keep their current value; giving body or html
+        """Change a Gmail draft. Omitted fields keep their current value; giving body or html
         replaces the body. attachment_paths are added to the current attachments unless
         keep_attachments is false. Thread and reply headers are kept."""
         return gmail().update_draft(
@@ -367,34 +384,34 @@ def build_server(
             dry_run,
         )
 
-    @tool(hints(destructive=True, idempotent=True), "compose")
+    @tool("Send a Gmail draft", hints(destructive=True, idempotent=True), "compose")
     def send_draft(draft_id: str, dry_run: bool = False) -> dict[str, Any]:
-        """Send an existing draft. Returns the sent message id and thread_id."""
+        """Send an existing Gmail draft. Returns the sent message id and thread_id."""
         return gmail().send_draft(draft_id, dry_run)
 
-    @tool(hints(destructive=True, idempotent=True), "compose")
+    @tool("Delete a Gmail draft", hints(destructive=True, idempotent=True), "compose")
     def delete_draft(draft_id: str, dry_run: bool = False) -> dict[str, Any]:
-        """Delete a draft permanently (drafts do not go to Trash)."""
+        """Delete a Gmail draft permanently (drafts do not go to Trash)."""
         return gmail().delete_draft(draft_id, dry_run)
 
     # Labels and state ---------------------------------------------------------------------
 
-    @tool(hints(idempotent=True), "modify")
+    @tool("Create a Gmail label", hints(idempotent=True), "modify")
     def create_label(name: str, dry_run: bool = False) -> dict[str, Any]:
-        """Create a label. Use "/" for nesting, e.g. "Receipts/2026"."""
+        """Create a Gmail label (folder). Use "/" for nesting, e.g. "Receipts/2026"."""
         return gmail().create_label(name, dry_run)
 
-    @tool(hints(idempotent=True), "modify")
+    @tool("Rename a Gmail label", hints(idempotent=True), "modify")
     def rename_label(label: str, new_name: str, dry_run: bool = False) -> dict[str, Any]:
-        """Rename a user label, given by name or id."""
+        """Rename a user-created Gmail label, given by name or id."""
         return gmail().rename_label(label, new_name, dry_run)
 
-    @tool(hints(destructive=True, idempotent=True), "modify")
+    @tool("Delete a Gmail label", hints(destructive=True, idempotent=True), "modify")
     def delete_label(label: str, dry_run: bool = False) -> dict[str, Any]:
-        """Delete a user label. The messages stay; they just lose this label."""
+        """Delete a user-created Gmail label. The emails stay; they just lose this label."""
         return gmail().delete_label(label, dry_run)
 
-    @tool(hints(idempotent=True), "modify")
+    @tool("Label emails", hints(idempotent=True), "modify")
     def modify_labels(
         ids: list[str],
         add_labels: list[str] | None = None,
@@ -402,36 +419,36 @@ def build_server(
         threads: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Add or remove labels (names or ids) on messages, or on whole threads with
+        """Add or remove Gmail labels (names or ids) on emails, or on whole threads with
         threads=true. System labels work too: INBOX, UNREAD, STARRED, IMPORTANT, SPAM."""
         return gmail().modify_labels(ids, add_labels, remove_labels, threads, dry_run)
 
-    @tool(hints(idempotent=True), "modify")
+    @tool("Mark emails read, starred or archived", hints(idempotent=True), "modify")
     def mark_messages(
         ids: list[str],
         action: Literal["read", "unread", "star", "unstar", "archive", "unarchive"],
         threads: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Mark read/unread, star/unstar, archive (remove from Inbox) or unarchive."""
+        """Mark emails read/unread, star/unstar, archive (remove from Inbox) or unarchive."""
         return gmail().mark(ids, action, threads, dry_run)
 
-    @tool(hints(destructive=True, idempotent=True), "modify")
+    @tool("Move emails to Trash", hints(destructive=True, idempotent=True), "modify")
     def trash(ids: list[str], threads: bool = False, dry_run: bool = False) -> dict[str, Any]:
-        """Move messages (or threads) to Trash. Gmail deletes Trash after 30 days; untrash
-        restores them before that."""
+        """Move emails (messages or threads) to Gmail Trash. Gmail deletes Trash after 30 days;
+        untrash restores them before that."""
         return gmail().trash(ids, threads, False, dry_run)
 
-    @tool(hints(idempotent=True), "modify")
+    @tool("Restore emails from Trash", hints(idempotent=True), "modify")
     def untrash(ids: list[str], threads: bool = False, dry_run: bool = False) -> dict[str, Any]:
-        """Restore messages (or threads) from Trash."""
+        """Restore emails (messages or threads) from Gmail Trash."""
         return gmail().trash(ids, threads, True, dry_run)
 
-    @tool(hints(destructive=True, idempotent=True), "delete")
+    @tool("Delete emails permanently", hints(destructive=True, idempotent=True), "delete")
     def delete_permanently(
         ids: list[str], threads: bool = False, dry_run: bool = False
     ) -> dict[str, Any]:
-        """Delete messages (or threads) immediately, skipping Trash. This cannot be undone.
+        """Delete emails (messages or threads) immediately, skipping Trash. This cannot be undone.
         Prefer trash unless the user explicitly asked for permanent deletion."""
         return gmail().delete_permanently(ids, threads, dry_run)
 
