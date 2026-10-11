@@ -9,6 +9,9 @@
   },
   "homepage": "https://github.com/dremok/gmail-agent",
   "repository": "https://github.com/dremok/gmail-agent",
+  "documentationUrl": "https://github.com/dremok/gmail-agent#readme",
+  "supportUrl": "https://github.com/dremok/gmail-agent/issues",
+  "privacyPolicyUrl": "https://github.com/dremok/gmail-agent/blob/main/PRIVACY.md",
   "license": "MIT",
   "keywords": ["gmail", "email", "mail", "inbox", "attachments", "invoices", "pdf", "mcp"],
   "mcpServers": {
