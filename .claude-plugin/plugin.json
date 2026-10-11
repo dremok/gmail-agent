@@ -1,7 +1,7 @@
 {
   "name": "gmail-agent",
   "displayName": "Gmail (gmail-agent)",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Gmail for Claude: search and read mail, download attachments (invoices, receipts, PDFs), read PDF text, send, reply, forward, drafts, labels and trash. Runs locally with your own Google OAuth client.",
   "author": {
     "name": "Max Leander",
@@ -14,7 +14,7 @@
   "mcpServers": {
     "gmail": {
       "command": "uvx",
-      "args": ["gmail-agent==0.3.0", "mcp"]
+      "args": ["gmail-agent==0.3.1", "mcp"]
     }
   }
 }

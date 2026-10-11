@@ -1,5 +1,6 @@
 # Direct runtime dependencies, pinned to the versions in uv.lock. pyproject.toml declares the
 # compatible ranges; tests/test_packaging.py checks that all three agree.
+cryptography==48.0.1; sys_platform == 'darwin' and platform_machine == 'x86_64'
 google-api-python-client==2.201.0
 google-auth[requests]==2.60.0
 google-auth-httplib2==0.4.4

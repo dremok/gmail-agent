@@ -1,6 +1,6 @@
 [project]
 name = "gmail-agent"
-version = "0.3.0"
+version = "0.3.1"
 description = "Gmail for AI agents: search, read, download attachments, send, reply, forward, drafts and labels, as a CLI and an MCP server."
 readme = "README.md"
 license = "MIT"
@@ -22,6 +22,9 @@ classifiers = [
 # Compatible ranges here, for anyone installing the package; exact pins in requirements.txt
 # and uv.lock (tests/test_packaging.py keeps the three in step).
 dependencies = [
+    # google-auth needs cryptography, and 49 dropped Intel Macs: newer releases have no wheel
+    # there and build from source, which fails without Rust or links the wrong OpenSSL.
+    "cryptography>=48.0.1,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "google-api-python-client>=2.201.0,<3",
     "google-auth[requests]>=2.60.0,<3",
     "google-auth-httplib2>=0.4.4,<0.5",
@@ -45,6 +48,14 @@ dev = [
     "packaging==26.3",
     "pytest==9.1.1",
     "ruff==0.16.10",
+]
+
+[tool.uv]
+# uv.lock only. Without it uv would lock the Intel Mac cap on cryptography (see dependencies)
+# for every platform, and a constraint-dependencies lower bound fails to resolve (uv 0.13).
+override-dependencies = [
+    "cryptography>=48.0.1,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "cryptography>=49; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 
 [build-system]

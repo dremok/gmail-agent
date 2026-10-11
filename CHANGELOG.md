@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+
+- **Installs on Intel Macs again**, and with an Intel (x86_64) Python on Apple Silicon. cryptography 49, which Google's auth library needs, ships macOS wheels for arm64 only, so there it was built from source: that fails without Rust, or builds a module that does not load and leaves the MCP server stuck at "Connection closed". On Intel macOS gmail-agent now installs cryptography 48, the last release with Intel wheels. Other platforms are unchanged.
+
 ## 0.3.0
 
 First release on PyPI and in the MCP Registry: `uv tool install gmail-agent`, or `uvx gmail-agent mcp`.

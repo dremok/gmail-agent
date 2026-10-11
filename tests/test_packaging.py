@@ -23,16 +23,33 @@ def test_requirements_pin_the_locked_versions_inside_the_declared_ranges():
     declared = requirements(project["dependencies"])
     pinned = requirements((ROOT / "requirements.txt").read_text().splitlines())
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
-    locked = {canonicalize_name(p["name"]): p.get("version") for p in lock["package"]}
+    locked: dict[str, set[str]] = {}
+    for p in lock["package"]:  # a package can be locked at one version per platform
+        locked.setdefault(canonicalize_name(p["name"]), set()).add(p.get("version"))
 
     assert pinned.keys() == declared.keys()
     for name, pin in pinned.items():
         [spec] = pin.specifier
         assert spec.operator == "==", name
-        assert spec.version == locked[name], name
+        assert spec.version in locked[name], name
         assert declared[name].specifier.contains(spec.version), name
         assert pin.extras == declared[name].extras, name
+        assert pin.marker == declared[name].marker, name
         assert all(s.operator != "==" for s in declared[name].specifier), name
+
+
+def test_intel_macs_get_a_cryptography_with_a_wheel():
+    """cryptography 49 publishes macOS wheels for arm64 only, so Intel Macs are held at 48."""
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    crypto = requirements(project["dependencies"])["cryptography"]
+    intel = {"sys_platform": "darwin", "platform_machine": "x86_64"}
+    arm = {"sys_platform": "darwin", "platform_machine": "arm64"}
+    assert crypto.marker.evaluate(intel)
+    assert not crypto.marker.evaluate(arm)
+    assert not crypto.specifier.contains("49.0.0")
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    versions = {p["version"] for p in lock["package"] if p["name"] == "cryptography"}
+    assert any(not crypto.specifier.contains(v) for v in versions), "others got the cap too"
 
 
 def test_one_version_everywhere():
