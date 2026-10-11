@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF7AC6"/>
+      <stop offset="0.5" stop-color="#A77BFF"/>
+      <stop offset="1" stop-color="#5EE7F5"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.25" cy="0.2" r="0.6">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFE8F6"/>
+    </linearGradient>
+    <linearGradient id="flap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC2E6"/>
+      <stop offset="1" stop-color="#F9A8D4"/>
+    </linearGradient>
+    <linearGradient id="horn" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#E11D74"/>
+      <stop offset="1" stop-color="#FF4D6D"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A1B3D"/>
+      <stop offset="1" stop-color="#0B0712"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#5B21B6" flood-opacity="0.35"/>
+    </filter>
+    <filter id="neon" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+    <filter id="sparkle" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="tile"><rect width="1024" height="1024" rx="230"/></clipPath>
+  </defs>
+
+  <!-- dreamy sky -->
+  <g clip-path="url(#tile)">
+    <rect width="1024" height="1024" fill="url(#sky)"/>
+    <circle cx="830" cy="190" r="190" fill="#FFD6F5" opacity="0.55" filter="url(#soft)"/>
+    <circle cx="160" cy="860" r="210" fill="#B9F3FF" opacity="0.5" filter="url(#soft)"/>
+    <rect width="1024" height="1024" fill="url(#glow)"/>
+  </g>
+
+  <!-- sparkles -->
+  <g fill="#FFFFFF" filter="url(#sparkle)">
+    <path d="M150 170 C156 200 166 210 196 216 C166 222 156 232 150 262 C144 232 134 222 104 216 C134 210 144 200 150 170Z"/>
+    <path d="M880 470 C884 490 890 496 910 500 C890 504 884 510 880 530 C876 510 870 504 850 500 C870 496 876 490 880 470Z"/>
+    <path d="M300 820 C303 836 308 841 324 844 C308 847 303 852 300 868 C297 852 292 847 276 844 C292 841 297 836 300 820Z"/>
+    <circle cx="820" cy="300" r="7"/>
+    <circle cx="110" cy="560" r="6"/>
+    <circle cx="560" cy="150" r="5"/>
+  </g>
+
+  <!-- the little devil: horns, envelope, face -->
+  <g filter="url(#shadow)">
+    <path d="M232 318 C214 262 220 214 252 176 C254 226 274 262 312 290 Z" fill="url(#horn)"/>
+    <path d="M748 318 C766 262 760 214 728 176 C726 226 706 262 668 290 Z" fill="url(#horn)"/>
+    <rect x="180" y="290" width="620" height="440" rx="70" fill="url(#paper)"/>
+  </g>
+  <path d="M206 318 Q490 548 490 548 Q490 548 774 318" fill="url(#flap)" stroke="#F472B6" stroke-width="10" stroke-linejoin="round"/>
+
+  <!-- wink -->
+  <path d="M352 618 Q384 588 416 618" fill="none" stroke="#3B0A45" stroke-width="16" stroke-linecap="round"/>
+  <!-- open eye with highlight -->
+  <ellipse cx="590" cy="610" rx="26" ry="32" fill="#3B0A45"/>
+  <circle cx="599" cy="598" r="9" fill="#FFFFFF"/>
+  <!-- blush -->
+  <ellipse cx="330" cy="668" rx="38" ry="20" fill="#FF8FC8" opacity="0.7"/>
+  <ellipse cx="642" cy="668" rx="38" ry="20" fill="#FF8FC8" opacity="0.7"/>
+  <!-- smirk with tongue out -->
+  <path d="M477 672 V694 A15 15 0 0 0 507 694 V672 Z" fill="#FF6B8E"/>
+  <path d="M492 684 V698" fill="none" stroke="#E8436A" stroke-width="4" stroke-linecap="round"/>
+  <path d="M460 660 Q492 692 524 660" fill="none" stroke="#3B0A45" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- download badge -->
+  <circle cx="770" cy="770" r="168" fill="#FFFFFF"/>
+  <circle cx="770" cy="770" r="152" fill="url(#badge)"/>
+  <g fill="none" stroke="#B6FF3B" stroke-width="34" stroke-linecap="round" stroke-linejoin="round" filter="url(#neon)">
+    <path d="M770 680 V808"/>
+    <path d="M712 752 L770 810 L828 752"/>
+    <path d="M700 862 H840"/>
+  </g>
+</svg>
